@@ -1,0 +1,573 @@
+package com.androidmanager.ui.setup
+
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.Location
+import android.os.Bundle
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.lifecycle.lifecycleScope
+import com.androidmanager.data.local.PreferencesManager
+import com.androidmanager.data.remote.NetworkModule
+import com.androidmanager.data.repository.DeviceRepository
+import com.androidmanager.manager.DevicePolicyManagerHelper
+import com.androidmanager.service.DeviceMonitorService
+import com.androidmanager.ui.theme.AndroidManagerTheme
+import com.androidmanager.util.Constants
+import com.androidmanager.util.DeviceUtils
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationToken
+import com.google.android.gms.tasks.CancellationTokenSource
+import com.google.android.gms.tasks.OnTokenCanceledListener
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+
+/**
+ * Setup Activity - Automatic device provisioning
+ * No user input required - everything is configured automatically
+ */
+class SetupActivity : ComponentActivity() {
+
+    companion object {
+        private const val TAG = "SetupActivity"
+    }
+
+    private lateinit var preferencesManager: PreferencesManager
+    private lateinit var policyHelper: DevicePolicyManagerHelper
+    private lateinit var deviceRepository: DeviceRepository
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        preferencesManager = PreferencesManager(this)
+        policyHelper = DevicePolicyManagerHelper(this)
+
+        // Initialize location client
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+        // Initialize network with hardcoded URL
+        NetworkModule.initialize(Constants.BACKEND_URL)
+        deviceRepository = DeviceRepository(preferencesManager)
+
+        setContent {
+            AndroidManagerTheme {
+                AutoSetupScreen()
+            }
+        }
+    }
+
+    @Composable
+    private fun AutoSetupScreen() {
+        var setupState by remember { mutableStateOf(SetupState.INITIALIZING) }
+        var statusMessage by remember { mutableStateOf("Initializing...") }
+        var errorMessage by remember { mutableStateOf<String?>(null) }
+        var generatedPin by remember { mutableStateOf("") }
+
+        LaunchedEffect(Unit) {
+            runAutoSetup(
+                onStateChange = { state, message ->
+                    setupState = state
+                    statusMessage = message
+                },
+                onPinGenerated = { pin ->
+                    generatedPin = pin
+                },
+                onError = { error ->
+                    errorMessage = error
+                    setupState = SetupState.ERROR
+                },
+                onComplete = {
+                    setupState = SetupState.COMPLETE
+                }
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF1A1A2E)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                when (setupState) {
+                    SetupState.INITIALIZING,
+                    SetupState.APPLYING_RESTRICTIONS,
+                    SetupState.GENERATING_PIN,
+                    SetupState.LOCKING_ACCOUNT,
+                    SetupState.REGISTERING -> {
+                        CircularProgressIndicator(
+                            color = Color(0xFF4CAF50),
+                            strokeWidth = 4.dp,
+                            modifier = Modifier.size(64.dp)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(32.dp))
+                        
+                        Text(
+                            text = "Setting Up Device",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Text(
+                            text = statusMessage,
+                            color = Color.Gray,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    
+                    SetupState.WAITING_FOR_ACCOUNT -> {
+                        CircularProgressIndicator(
+                            color = Color(0xFF4CAF50),
+                            strokeWidth = 4.dp,
+                            modifier = Modifier.size(64.dp)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(32.dp))
+                        
+                        Text(
+                            text = "Google Account Required",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Text(
+                            text = "Please add your shop's Google account for FRP protection.\n\n" +
+                                  "1. Tap the button below\n" +
+                                  "2. Sign in with Google\n" +
+                                  "3. Setup will continue automatically\n\n" +
+                                  "This account cannot be removed later.",
+                            color = Color.Gray,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Button(
+                            onClick = {
+                                try {
+                                    val intent = Intent(android.provider.Settings.ACTION_ADD_ACCOUNT).apply {
+                                        putExtra(android.provider.Settings.EXTRA_ACCOUNT_TYPES, arrayOf("com.google"))
+                                    }
+                                    startActivity(intent)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Failed to open account settings", e)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF4CAF50)
+                            )
+                        ) {
+                            Text("Add Google Account")
+                        }
+                    }
+                    
+                    SetupState.WAITING_FOR_ADDITIONAL_ACCOUNTS -> {
+                        Text(
+                            text = "Customer Accounts",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Text(
+                            text = "Does the customer need personal Google accounts on this device?\n\n" +
+                                  "You can add up to 2 more accounts now.\n\n" +
+                                  "⚠️ Once locked, NO accounts can be added or removed later.",
+                            color = Color.Gray,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(android.provider.Settings.ACTION_ADD_ACCOUNT).apply {
+                                            putExtra(android.provider.Settings.EXTRA_ACCOUNT_TYPES, arrayOf("com.google"))
+                                        }
+                                        startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Failed to open account settings", e)
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF2196F3)
+                                )
+                            ) {
+                                Text("Add Account")
+                            }
+                            
+                            Button(
+                                onClick = {
+                                    // Continue to lock accounts
+                                    lifecycleScope.launch {
+                                        continueSetupAfterAccounts(
+                                            onStateChange = { state, message ->
+                                                setupState = state
+                                                statusMessage = message
+                                            },
+                                            onError = { error ->
+                                                errorMessage = error
+                                                setupState = SetupState.ERROR
+                                            }
+                                        )
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF4CAF50)
+                                )
+                            ) {
+                                Text("Done - Lock Accounts")
+                            }
+                        }
+                    }
+                    
+                    SetupState.COMPLETE -> {
+                        // Auto-finish after showing confirmation briefly
+                        LaunchedEffect(Unit) {
+                            delay(2000) // Show message for 2 seconds
+                            finishSetup()
+                        }
+                        
+                        Text(
+                            text = "✓",
+                            fontSize = 72.sp,
+                            color = Color(0xFF4CAF50)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Text(
+                            text = "Device Ready",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    
+                    SetupState.ERROR -> {
+                        Text(
+                            text = "⚠",
+                            fontSize = 72.sp,
+                            color = Color(0xFFE94560)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Text(
+                            text = "Setup Failed",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Text(
+                            text = errorMessage ?: "Unknown error occurred",
+                            color = Color(0xFFE94560),
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        
+                        Spacer(modifier = Modifier.height(32.dp))
+                        
+                        Button(
+                            onClick = { 
+                                errorMessage = null
+                                lifecycleScope.launch {
+                                    runAutoSetup(
+                                        onStateChange = { state, message ->
+                                            setupState = state
+                                            statusMessage = message
+                                        },
+                                        onPinGenerated = { pin ->
+                                            generatedPin = pin
+                                        },
+                                        onError = { error ->
+                                            errorMessage = error
+                                            setupState = SetupState.ERROR
+                                        },
+                                        onComplete = {
+                                            setupState = SetupState.COMPLETE
+                                        }
+                                    )
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF4CAF50)
+                            )
+                        ) {
+                            Text("Retry")
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        TextButton(
+                            onClick = { finishSetup() }
+                        ) {
+                            Text("Skip and Continue", color = Color.Gray)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun runAutoSetup(
+        onStateChange: (SetupState, String) -> Unit,
+        onPinGenerated: (String) -> Unit,
+        onError: (String) -> Unit,
+        onComplete: () -> Unit
+    ) {
+        try {
+            // Step 1: Initialize
+            onStateChange(SetupState.INITIALIZING, "Preparing device...")
+            delay(500)
+
+            val deviceId = DeviceUtils.generateDeviceId(this@SetupActivity)
+            preferencesManager.setDeviceId(deviceId)
+            Log.d(TAG, "Device ID: $deviceId")
+
+            preferencesManager.setShopInfo(Constants.SHOP_ID, Constants.SHOP_NAME)
+            preferencesManager.setBackendUrl(Constants.BACKEND_URL)
+
+            // Step 2: Generate PIN
+            onStateChange(SetupState.GENERATING_PIN, "Generating secure PIN...")
+            delay(500)
+
+            val pin = generateRandomPin()
+            onPinGenerated(pin)
+            Log.d(TAG, "Generated PIN: $pin")
+
+            if (policyHelper.isDeviceOwner()) {
+                val pinSet = policyHelper.setScreenLockPin(pin)
+                Log.d(TAG, "PIN set result: $pinSet")
+            }
+
+            // Step 3: Apply restrictions
+            onStateChange(SetupState.APPLYING_RESTRICTIONS, "Applying device protection...")
+            delay(500)
+
+            if (policyHelper.isDeviceOwner()) {
+                // Suppress all device owner notifications first
+                policyHelper.suppressDeviceOwnerNotifications()
+                
+                // Then apply restrictions
+                policyHelper.completeInitialSetup()
+                Log.d(TAG, "Device restrictions applied")
+            } else {
+                Log.w(TAG, "Not device owner - restrictions not applied")
+            }
+
+            // Step 3.5: Handle Google Account for FRP
+            if (policyHelper.isDeviceOwner()) {
+                if (!policyHelper.hasGoogleAccount()) {
+                    // No account - prompt user to add one
+                    onStateChange(
+                        SetupState.WAITING_FOR_ACCOUNT,
+                        "Waiting for Google account..."
+                    )
+                    
+                    Log.d(TAG, "No Google account found - waiting for user to add one")
+                    
+                    // Ensure account addition is allowed
+                    policyHelper.allowAccountAddition()
+                    
+                    // Wait for account to be added (with timeout)
+                    var accountAdded = false
+                    var attempts = 0
+                    val maxAttempts = 300 // 5 minutes (300 * 1000ms)
+                    
+                    while (!accountAdded && attempts < maxAttempts) {
+                        delay(1000)
+                        accountAdded = policyHelper.hasGoogleAccount()
+                        attempts++
+                        
+                        if (attempts % 10 == 0) {
+                            Log.d(TAG, "Still waiting for account... (${attempts}s elapsed)")
+                        }
+                    }
+                    
+                    if (!accountAdded) {
+                        throw Exception("Google account not added within 5 minutes. Please add account and retry setup.")
+                    }
+                    
+                    Log.d(TAG, "Google account detected!")
+                }
+                
+                // Account exists - lock it
+                onStateChange(SetupState.LOCKING_ACCOUNT, "Securing Google account...")
+                delay(500)
+                
+                val firstAccount = policyHelper.getFirstGoogleAccount()
+                if (firstAccount != null) {
+                    // NOTE: lockAccountModification() is DISABLED to allow users to add more accounts
+                    // FRP (Factory Reset Protection) is sufficient - requires this account for factory reset
+                    // policyHelper.lockAccountModification()  // DISABLED
+                    preferencesManager.setLockedAccount(firstAccount.name, firstAccount.name)
+                    Log.d(TAG, "Locked account: ${firstAccount.name}")
+                } else {
+                    Log.w(TAG, "No Google account found after detection")
+                }
+            }
+
+            // Step 4: Register with backend
+            onStateChange(SetupState.REGISTERING, "Registering with server...")
+
+            val serialNumber = policyHelper.getDeviceSerialNumber()
+            var imei = policyHelper.getDeviceIMEI()
+            
+            // Handle IMEI for emulator vs real device
+            if (imei == null || imei == "000000000000000") {
+                // Check if running on emulator
+                val isEmulator = android.os.Build.FINGERPRINT.contains("generic") || 
+                                 android.os.Build.MODEL.contains("Emulator") ||
+                                 android.os.Build.PRODUCT.contains("sdk")
+                
+                if (isEmulator) {
+                    // Use test IMEI for emulator
+                    imei = "123456789012345"
+                    Log.w(TAG, "Running on emulator - using test IMEI: $imei")
+                } else {
+                    // Real device without IMEI - error
+                    Log.e(TAG, "Failed to get IMEI from real device")
+                    throw Exception("IMEI required for device registration. Please ensure telephony permissions are granted.")
+                }
+            }
+            
+            // Save IMEI to preferences
+            preferencesManager.setImei(imei)
+            Log.d(TAG, "IMEI: $imei")
+
+            // Note: firstAccount is already handled in FRP section above
+
+            // Get current location if available
+            var currentLocation: Location? = null
+            try {
+                if (ActivityCompat.checkSelfPermission(
+                        this@SetupActivity,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    currentLocation = fusedLocationClient.getCurrentLocation(
+                        Priority.PRIORITY_HIGH_ACCURACY,
+                        object : CancellationToken() {
+                            override fun onCanceledRequested(p0: OnTokenCanceledListener) = CancellationTokenSource().token
+                            override fun isCancellationRequested() = false
+                        }
+                    ).await()
+                    Log.d(TAG, "Got location: ${currentLocation?.latitude}, ${currentLocation?.longitude}")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not get location: ${e.message}")
+            }
+
+            // Try to get FCM token if available
+            val fcmToken = preferencesManager.getFcmToken()
+            Log.d(TAG, "FCM Token available: ${fcmToken != null}")
+
+            try {
+                val result = deviceRepository.registerDevice(
+                    deviceId = deviceId,
+                    serialNumber = serialNumber,
+                    imei = imei,
+                    fcmToken = fcmToken,  // May be null if not yet generated
+                    shopId = Constants.SHOP_ID,
+                    shopOwnerEmail = policyHelper.getFirstGoogleAccount()?.name,
+                    devicePin = pin,  // Pass the generated PIN
+                    latitude = currentLocation?.latitude,
+                    longitude = currentLocation?.longitude
+                )
+
+                result.onSuccess { response ->
+                    Log.d(TAG, "Device registered: ${response.message}")
+                }
+
+                result.onFailure { error ->
+                    Log.e(TAG, "Registration failed: ${error.message}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Registration error: ${e.message}")
+            }
+
+            // Step 5: Complete
+            preferencesManager.setSetupComplete(true)
+            
+            delay(500)
+            onComplete()
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Setup error", e)
+            onError(e.message ?: "Unknown error")
+        }
+    }
+
+    private fun generateRandomPin(): String {
+        return (1000..9999).random().toString()
+    }
+
+    private fun finishSetup() {
+        try {
+            val serviceIntent = Intent(this, DeviceMonitorService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            Log.d(TAG, "DeviceMonitorService started")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start DeviceMonitorService", e)
+            // Continue anyway - service will start on next boot
+        }
+        finish()
+    }
+
+    private enum class SetupState {
+        INITIALIZING,
+        GENERATING_PIN,
+        APPLYING_RESTRICTIONS,
+        WAITING_FOR_ACCOUNT,
+        WAITING_FOR_ADDITIONAL_ACCOUNTS,  // NEW: Ask if customer needs more accounts
+        LOCKING_ACCOUNT,
+        REGISTERING,
+        COMPLETE,
+        ERROR
+    }
+}

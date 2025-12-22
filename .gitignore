@@ -1,0 +1,48 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Firebase & Google Services
+google-services.json
+app/google-services.json
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+secrets.properties
+
+# Keystore files (NEVER commit these!)
+*.jks
+*.keystore
+release.keystore
+debug.keystore
+
+# API Keys & Credentials
+apiKeys.properties
+credentials.json
+
+# Logcat files
+*.logcat
+
+# Internal Documentation (do not commit)
+PROJECT_HISTORY.md
+CUSTOMER_DEVICE_API_DOCUMENTATION.md
+
+# APK/Bundle files
+*.apk
+*.aab
+*.ap_
+*.dex
