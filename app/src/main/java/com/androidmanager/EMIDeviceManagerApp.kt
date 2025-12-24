@@ -100,18 +100,36 @@ class EMIDeviceManagerApp : Application() {
     private fun requestFcmToken() {
         applicationScope.launch(Dispatchers.IO) {
             try {
+                Log.d(TAG, "============================================")
+                Log.d(TAG, "STARTING FCM TOKEN REQUEST")
+                Log.d(TAG, "============================================")
+                
                 FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                    Log.d(TAG, "FCM token task completed. Success: ${task.isSuccessful}")
+                    
                     if (!task.isSuccessful) {
-                        Log.w(TAG, "Fetching FCM token failed", task.exception)
+                        Log.e(TAG, "====== FCM TOKEN FETCH FAILED ======")
+                        Log.e(TAG, "Exception: ${task.exception}")
+                        Log.e(TAG, "Exception class: ${task.exception?.javaClass?.name}")
+                        Log.e(TAG, "Exception message: ${task.exception?.message}")
+                        Log.e(TAG, "Exception cause: ${task.exception?.cause}")
+                        task.exception?.printStackTrace()
+                        Log.e(TAG, "====================================")
                         return@addOnCompleteListener
                     }
 
                     // Get new FCM token
                     val token = task.result
                     Log.d(TAG, "========================================")
-                    Log.d(TAG, "FCM TOKEN RETRIEVED EXPLICITLY")
+                    Log.d(TAG, "✅ FCM TOKEN RETRIEVED SUCCESSFULLY")
+                    Log.d(TAG, "Token length: ${token?.length ?: 0}")
                     Log.d(TAG, "Token: $token")
                     Log.d(TAG, "========================================")
+
+                    if (token == null || token.isEmpty()) {
+                        Log.e(TAG, "FCM token is null or empty!")
+                        return@addOnCompleteListener
+                    }
 
                     // Save token locally
                     applicationScope.launch {
@@ -138,7 +156,13 @@ class EMIDeviceManagerApp : Application() {
                     }
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "====== FCM TOKEN REQUEST EXCEPTION ======")
                 Log.e(TAG, "Error requesting FCM token", e)
+                Log.e(TAG, "Exception: ${e.javaClass.name}")
+                Log.e(TAG, "Message: ${e.message}")
+                Log.e(TAG, "Cause: ${e.cause}")
+                e.printStackTrace()
+                Log.e(TAG, "=========================================")
             }
         }
     }

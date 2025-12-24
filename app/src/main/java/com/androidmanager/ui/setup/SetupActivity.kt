@@ -191,72 +191,7 @@ class SetupActivity : ComponentActivity() {
                         }
                     }
                     
-                    SetupState.WAITING_FOR_ADDITIONAL_ACCOUNTS -> {
-                        Text(
-                            text = "Customer Accounts",
-                            color = Color.White,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        Text(
-                            text = "Does the customer need personal Google accounts on this device?\n\n" +
-                                  "You can add up to 2 more accounts now.\n\n" +
-                                  "⚠️ Once locked, NO accounts can be added or removed later.",
-                            color = Color.Gray,
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center
-                        )
-                        
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    try {
-                                        val intent = Intent(android.provider.Settings.ACTION_ADD_ACCOUNT).apply {
-                                            putExtra(android.provider.Settings.EXTRA_ACCOUNT_TYPES, arrayOf("com.google"))
-                                        }
-                                        startActivity(intent)
-                                    } catch (e: Exception) {
-                                        Log.e(TAG, "Failed to open account settings", e)
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF2196F3)
-                                )
-                            ) {
-                                Text("Add Account")
-                            }
-                            
-                            Button(
-                                onClick = {
-                                    // Continue to lock accounts
-                                    lifecycleScope.launch {
-                                        continueSetupAfterAccounts(
-                                            onStateChange = { state, message ->
-                                                setupState = state
-                                                statusMessage = message
-                                            },
-                                            onError = { error ->
-                                                errorMessage = error
-                                                setupState = SetupState.ERROR
-                                            }
-                                        )
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF4CAF50)
-                                )
-                            ) {
-                                Text("Done - Lock Accounts")
-                            }
-                        }
-                    }
+
                     
                     SetupState.COMPLETE -> {
                         // Auto-finish after showing confirmation briefly
@@ -438,9 +373,7 @@ class SetupActivity : ComponentActivity() {
                 
                 val firstAccount = policyHelper.getFirstGoogleAccount()
                 if (firstAccount != null) {
-                    // NOTE: lockAccountModification() is DISABLED to allow users to add more accounts
-                    // FRP (Factory Reset Protection) is sufficient - requires this account for factory reset
-                    // policyHelper.lockAccountModification()  // DISABLED
+                    policyHelper.lockAccountModification()
                     preferencesManager.setLockedAccount(firstAccount.name, firstAccount.name)
                     Log.d(TAG, "Locked account: ${firstAccount.name}")
                 } else {
@@ -564,7 +497,6 @@ class SetupActivity : ComponentActivity() {
         GENERATING_PIN,
         APPLYING_RESTRICTIONS,
         WAITING_FOR_ACCOUNT,
-        WAITING_FOR_ADDITIONAL_ACCOUNTS,  // NEW: Ask if customer needs more accounts
         LOCKING_ACCOUNT,
         REGISTERING,
         COMPLETE,
