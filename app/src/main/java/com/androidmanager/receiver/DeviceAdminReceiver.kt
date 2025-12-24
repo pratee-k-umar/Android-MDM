@@ -7,11 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.UserHandle
 import android.util.Log
-import com.androidmanager.data.local.PreferencesManager
 import com.androidmanager.service.DeviceMonitorService
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 /**
  * Device Admin Receiver - Handles device owner events and policy management
@@ -45,6 +41,34 @@ class EMIDeviceAdminReceiver : DeviceAdminReceiver() {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Could not suppress notifications: ${e.message}")
+        }
+        
+        
+        // Start service at boot if setup is complete
+        // This fires earlier than BOOT_COMPLETED and bypasses "stopped state" restrictions
+        try {
+            // Read from SharedPreferences (written by PreferencesManager.setSetupComplete)
+            // We use SharedPreferences here instead of DataStore because:
+            // 1. DataStore writes asynchronously and may not be ready at boot
+            // 2. SharedPreferences is synchronous and guaranteed to persist
+            val sharedPrefs = context.getSharedPreferences("emi_device_manager_boot", Context.MODE_PRIVATE)
+            val isSetupComplete = sharedPrefs.getBoolean("is_setup_complete", false)
+            
+            Log.d(TAG, "Boot check: isSetupComplete = $isSetupComplete")
+            
+            if (isSetupComplete) {
+                val serviceIntent = Intent(context, DeviceMonitorService::class.java)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+                Log.d(TAG, "DeviceMonitorService started from Device Admin at boot")
+            } else {
+                Log.d(TAG, "Setup not complete - skipping service auto-start")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start service at boot", e)
         }
     }
 
@@ -84,11 +108,10 @@ class EMIDeviceAdminReceiver : DeviceAdminReceiver() {
         val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         val failedAttempts = dpm.currentFailedPasswordAttempts
         
+        
         // Log failed attempts for security monitoring
-        CoroutineScope(Dispatchers.IO).launch {
-            // Could send this to backend for security monitoring
-            Log.w(TAG, "Failed password attempts: $failedAttempts")
-        }
+        // Could send this to backend for security monitoring
+        Log.w(TAG, "Failed password attempts: $failedAttempts")
     }
 
     override fun onPasswordSucceeded(context: Context, intent: Intent, userHandle: UserHandle) {

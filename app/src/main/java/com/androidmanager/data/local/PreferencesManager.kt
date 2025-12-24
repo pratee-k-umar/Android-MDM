@@ -56,9 +56,16 @@ class PreferencesManager(private val context: Context) {
     }
 
     suspend fun setSetupComplete(complete: Boolean) {
+        // Write to DataStore (for normal app use)
         context.dataStore.edit { prefs ->
             prefs[KEY_IS_SETUP_COMPLETE] = complete
         }
+        
+        // ALSO write to SharedPreferences (for boot persistence)
+        // DataStore writes asynchronously and may not be ready at boot
+        // SharedPreferences is synchronous and guaranteed to persist
+        val sharedPrefs = context.getSharedPreferences("emi_device_manager_boot", Context.MODE_PRIVATE)
+        sharedPrefs.edit().putBoolean("is_setup_complete", complete).apply()
     }
 
     // Device ID

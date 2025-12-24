@@ -33,13 +33,17 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 val isSetupComplete = preferencesManager.isSetupComplete.first()
                 
                 if (isSetupComplete) {
-                    // Start the monitor service (regular start, not foreground)
+                    // Start the monitor service as foreground (required for Android O+)
                     val serviceIntent = Intent(context, DeviceMonitorService::class.java)
                     try {
-                        context.startService(serviceIntent)
-                        Log.d(TAG, "DeviceMonitorService started")
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            context.startForegroundService(serviceIntent)
+                        } else {
+                            context.startService(serviceIntent)
+                        }
+                        Log.d(TAG, "DeviceMonitorService started after boot")
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed to start DeviceMonitorService", e)
+                        Log.e(TAG, "Failed to start DeviceMonitorService after boot", e)
                     }
 
                     // Check if device should be locked
