@@ -35,7 +35,7 @@ debug.keystore
 apiKeys.properties
 credentials.json
 
-# Logcat files
+Logcat files
 *.logcat
 
 # Internal Documentation (do not commit)
