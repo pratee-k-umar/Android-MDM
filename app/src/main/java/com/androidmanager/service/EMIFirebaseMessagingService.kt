@@ -26,11 +26,16 @@ class EMIFirebaseMessagingService : FirebaseMessagingService() {
         private const val KEY_ACTION = "action"
         private const val KEY_TYPE = "type"
         private const val KEY_TIMESTAMP = "timestamp"
+        private const val KEY_MESSAGE = "message"
+        private const val KEY_TITLE = "title"
         
-        // Action types
+        // Message types
+        private const val TYPE_DEVICE_LOCK_STATUS = "DEVICE_LOCK_STATUS"
+        private const val TYPE_EMI_REMINDER = "EMI_REMINDER"
+        
+        // Action types (for lock/unlock)
         private const val ACTION_LOCK_DEVICE = "LOCK_DEVICE"
         private const val ACTION_UNLOCK_DEVICE = "UNLOCK_DEVICE"
-        private const val TYPE_DEVICE_LOCK_STATUS = "DEVICE_LOCK_STATUS"
         
         // Deduplication: ignore duplicate messages within this window
         private const val DEDUP_WINDOW_MS = 5000L // 5 seconds
@@ -77,12 +82,17 @@ class EMIFirebaseMessagingService : FirebaseMessagingService() {
 
         Log.d(TAG, "FCM data - type: $type, action: $action")
 
-        // Only handle device lock status messages
-        if (type != TYPE_DEVICE_LOCK_STATUS) {
-            Log.w(TAG, "Unknown message type: $type")
-            return
+        when (type) {
+            TYPE_DEVICE_LOCK_STATUS -> handleLockUnlockCommand(action, data)
+            TYPE_EMI_REMINDER -> handleEmiReminder(data)
+            else -> Log.w(TAG, "Unknown message type: $type")
         }
-        
+    }
+    
+    /**
+     * Handle device lock/unlock commands
+     */
+    private fun handleLockUnlockCommand(action: String?, data: Map<String, String>) {
         // Check for duplicate messages (deduplication)
         if (isDuplicateMessage(action)) {
             Log.w(TAG, "Ignoring duplicate $action message (received within ${DEDUP_WINDOW_MS}ms window)")
@@ -102,6 +112,23 @@ class EMIFirebaseMessagingService : FirebaseMessagingService() {
                 Log.w(TAG, "Unknown action: $action")
             }
         }
+    }
+    
+    /**
+     * Handle EMI payment reminder notification
+     */
+    private fun handleEmiReminder(data: Map<String, String>) {
+        val title = data[KEY_TITLE] ?: "EMI Payment Reminder"
+        val message = data[KEY_MESSAGE] ?: "You have a pending EMI payment. Please pay at the earliest."
+        
+        Log.d(TAG, "EMI Reminder - Title: $title, Message: $message")
+        
+        // Show notification to user
+        NotificationHelperService.showEmiReminderNotification(
+            context = this,
+            title = title,
+            message = message
+        )
     }
     
     /**
