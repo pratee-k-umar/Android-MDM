@@ -481,20 +481,7 @@ class SetupActivity : ComponentActivity() {
             preferencesManager.setShopInfo(Constants.SHOP_ID, Constants.SHOP_NAME)
             preferencesManager.setBackendUrl(Constants.BACKEND_URL)
 
-            // Step 2: Generate PIN
-            onStateChange(SetupState.GENERATING_PIN, "Generating secure PIN...")
-            delay(500)
-
-            val pin = generateRandomPin()
-            onPinGenerated(pin)
-            Log.d(TAG, "Generated PIN: $pin")
-
-            if (policyHelper.isDeviceOwner()) {
-                val pinSet = policyHelper.setScreenLockPin(pin)
-                Log.d(TAG, "PIN set result: $pinSet")
-            }
-
-            // Step 3: Apply restrictions
+            // Step 2: Apply restrictions
             onStateChange(SetupState.APPLYING_RESTRICTIONS, "Applying device protection...")
             delay(500)
 
@@ -509,55 +496,10 @@ class SetupActivity : ComponentActivity() {
                 Log.w(TAG, "Not device owner - restrictions not applied")
             }
 
-            // Step 3.5: Handle Google Account for FRP
-            if (policyHelper.isDeviceOwner()) {
-                if (!policyHelper.hasGoogleAccount()) {
-                    // No account - prompt user to add one
-                    onStateChange(
-                        SetupState.WAITING_FOR_ACCOUNT,
-                        "Waiting for Google account..."
-                    )
-                    
-                    Log.d(TAG, "No Google account found - waiting for user to add one")
-                    
-                    // Ensure account addition is allowed
-                    policyHelper.allowAccountAddition()
-                    
-                    // Wait for account to be added (with timeout)
-                    var accountAdded = false
-                    var attempts = 0
-                    val maxAttempts = 300 // 5 minutes (300 * 1000ms)
-                    
-                    while (!accountAdded && attempts < maxAttempts) {
-                        delay(1000)
-                        accountAdded = policyHelper.hasGoogleAccount()
-                        attempts++
-                        
-                        if (attempts % 10 == 0) {
-                            Log.d(TAG, "Still waiting for account... (${attempts}s elapsed)")
-                        }
-                    }
-                    
-                    if (!accountAdded) {
-                        throw Exception("Google account not added within 5 minutes. Please add account and retry setup.")
-                    }
-                    
-                    Log.d(TAG, "Google account detected!")
-                }
-                
-                // Account exists - lock it
-                onStateChange(SetupState.LOCKING_ACCOUNT, "Securing Google account...")
-                delay(500)
-                
-                val firstAccount = policyHelper.getFirstGoogleAccount()
-                if (firstAccount != null) {
-                    policyHelper.lockAccountModification()
-                    preferencesManager.setLockedAccount(firstAccount.name, firstAccount.name)
-                    Log.d(TAG, "Locked account: ${firstAccount.name}")
-                } else {
-                    Log.w(TAG, "No Google account found after detection")
-                }
-            }
+
+            // Step 3: Collect location and register
+            onStateChange(SetupState.COLLECTING_LOCATION, "Getting location...")
+            delay(500)
 
             // Step 4: Register with backend
             onStateChange(SetupState.REGISTERING, "Registering with server...")
@@ -621,7 +563,7 @@ class SetupActivity : ComponentActivity() {
                 fcmToken = fcmToken,  // May be null if not yet generated
                 shopId = Constants.SHOP_ID,
                 shopOwnerEmail = policyHelper.getFirstGoogleAccount()?.name,
-                devicePin = pin,  // Pass the generated PIN
+                devicePin = null,  // No PIN needed
                 latitude = currentLocation?.latitude,
                 longitude = currentLocation?.longitude
             )
@@ -648,9 +590,7 @@ class SetupActivity : ComponentActivity() {
         }
     }
 
-    private fun generateRandomPin(): String {
-        return (1000..9999).random().toString()
-    }
+
 
     private fun finishSetup() {
         try {

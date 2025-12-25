@@ -9,7 +9,6 @@ import kotlinx.serialization.Serializable
 data class FcmTokenRequest(
     val fcmToken: String,
     val imei1: String,
-    val devicePin: String? = null,  // Optional: 4-6 digit PIN
     val latitude: Double? = null,    // Optional: Device latitude
     val longitude: Double? = null    // Optional: Device longitude
 )
@@ -122,7 +121,6 @@ enum class CommandType {
     WIPE,
     UPDATE_MESSAGE,
     GET_LOCATION,
-    SET_PIN,
     PING
 }
 

@@ -102,9 +102,6 @@ object CommandExecutorService {
                     CommandType.GET_LOCATION -> {
                         success = executeGetLocationCommand(context)
                     }
-                    CommandType.SET_PIN -> {
-                        success = executeSetPinCommand(policyHelper, command.payload?.pin)
-                    }
                     CommandType.PING -> {
                         success = true // Just acknowledge
                     }
@@ -241,21 +238,5 @@ object CommandExecutorService {
         context.startService(intent)
 
         return true
-    }
-
-    /**
-     * Set new PIN
-     */
-    private fun executeSetPinCommand(
-        policyHelper: DevicePolicyManagerHelper,
-        pin: String?
-    ): Boolean {
-        if (pin == null || pin.length != 4) {
-            Log.e(TAG, "Invalid PIN")
-            return false
-        }
-
-        Log.d(TAG, "Setting new PIN")
-        return policyHelper.setScreenLockPin(pin)
     }
 }

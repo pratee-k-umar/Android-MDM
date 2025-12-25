@@ -24,11 +24,10 @@ class DeviceRepository(
 
     /**
      * Register FCM token with backend (using IMEI)
-     * Optionally includes device PIN and location for complete registration
+     * Optionally includes location for complete registration
      */
     suspend fun registerFcmToken(
         fcmToken: String,
-        devicePin: String? = null,
         latitude: Double? = null,
         longitude: Double? = null
     ): Result<FcmTokenResponse> = withContext(Dispatchers.IO) {
@@ -40,12 +39,11 @@ class DeviceRepository(
             val request = FcmTokenRequest(
                 fcmToken = fcmToken,
                 imei1 = imei,
-                devicePin = devicePin,
                 latitude = latitude,
                 longitude = longitude
             )
 
-            Log.d(TAG, "Registering FCM token with backend (PIN: ${devicePin != null}, Location: ${latitude != null})")
+            Log.d(TAG, "Registering FCM token with backend (Location: ${latitude != null})")
 
             val response = apiService.registerFcmToken(request)
 
@@ -130,7 +128,7 @@ class DeviceRepository(
 
     /**
      * Register device with backend
-     * Now includes PIN and location for complete registration
+     * Now includes location for complete registration
      */
     suspend fun registerDevice(
         deviceId: String,
@@ -139,7 +137,6 @@ class DeviceRepository(
         fcmToken: String?,
         shopId: String?,
         shopOwnerEmail: String?,
-        devicePin: String? = null,
         latitude: Double? = null,
         longitude: Double? = null
     ): Result<FcmTokenResponse> = withContext(Dispatchers.IO) {
@@ -147,11 +144,10 @@ class DeviceRepository(
             // Save IMEI if provided
             imei?.let { preferencesManager.setImei(it) }
             
-            // Register FCM token if available, including PIN and location
+            // Register FCM token if available, including location
             if (fcmToken != null) {
                 return@withContext registerFcmToken(
                     fcmToken = fcmToken,
-                    devicePin = devicePin,
                     latitude = latitude,
                     longitude = longitude
                 )

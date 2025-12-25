@@ -77,50 +77,7 @@ class DevicePolicyManagerHelper(private val context: Context) {
 
     // ==================== Screen Lock Management ====================
 
-    /**
-     * Set a 4-digit PIN as the screen lock
-     */
-    fun setScreenLockPin(pin: String): Boolean {
-        if (!isDeviceOwner()) {
-            Log.e(TAG, "Cannot set PIN - not device owner")
-            return false
-        }
 
-        return try {
-            // Set password quality to numeric
-            devicePolicyManager.setPasswordQuality(
-                adminComponent,
-                DevicePolicyManager.PASSWORD_QUALITY_NUMERIC
-            )
-
-            // Set minimum password length to 4
-            devicePolicyManager.setPasswordMinimumLength(adminComponent, 4)
-
-            // Set maximum time to lock (immediate)
-            devicePolicyManager.setMaximumTimeToLock(adminComponent, 0)
-
-            // Require password for device unlock
-            devicePolicyManager.setPasswordExpirationTimeout(adminComponent, 0)
-
-            // Reset the password
-            val result = devicePolicyManager.resetPassword(
-                pin,
-                DevicePolicyManager.RESET_PASSWORD_REQUIRE_ENTRY
-            )
-
-            if (result) {
-                // Lock the device immediately to enforce PIN entry
-                devicePolicyManager.lockNow()
-                Log.d(TAG, "PIN set and device locked - user must enter PIN")
-            }
-
-            Log.d(TAG, "PIN set result: $result")
-            result
-        } catch (e: Exception) {
-            Log.e(TAG, "Error setting PIN", e)
-            false
-        }
-    }
 
     /**
      * Lock the device immediately
