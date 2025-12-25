@@ -35,6 +35,7 @@
     <!-- Notification Permission (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+
     <application
         android:name=".EMIDeviceManagerApp"
         android:allowBackup="false"

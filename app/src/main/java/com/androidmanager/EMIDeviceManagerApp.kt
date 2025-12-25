@@ -3,6 +3,8 @@ package com.androidmanager
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
+import android.content.RestrictionsManager
 import android.os.Build
 import android.util.Log
 import com.androidmanager.data.local.PreferencesManager
@@ -82,14 +84,45 @@ class EMIDeviceManagerApp : Application() {
     private fun initializeNetwork() {
         applicationScope.launch {
             try {
-                val backendUrl = preferencesManager.getBackendUrl()
-                if (backendUrl != null) {
-                    NetworkModule.initialize(backendUrl)
-                    Log.d(TAG, "Network initialized with URL: $backendUrl")
+                // First, try to get backend URL from managed configuration (enterprise admin)
+                val managedBackendUrl = getManagedConfigBackendUrl()
+                
+                val backendUrl = managedBackendUrl 
+                    ?: preferencesManager.getBackendUrl() 
+                    ?: com.androidmanager.util.Constants.BACKEND_URL
+                
+                NetworkModule.initialize(backendUrl)
+                
+                if (managedBackendUrl != null) {
+                    Log.d(TAG, "Network initialized with MANAGED backend URL: $backendUrl")
+                    // Save managed URL to preferences for offline access
+                    preferencesManager.setBackendUrl(backendUrl)
+                } else {
+                    Log.d(TAG, "Network initialized with backend URL: $backendUrl")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error initializing network", e)
             }
+        }
+    }
+    
+    /**
+     * Get backend URL from managed configuration (if device is enterprise-managed)
+     * This allows enterprise admins to configure the backend URL remotely
+     */
+    private fun getManagedConfigBackendUrl(): String? {
+        return try {
+            val restrictionsManager = getSystemService(Context.RESTRICTIONS_SERVICE) as? RestrictionsManager
+            val appRestrictions = restrictionsManager?.applicationRestrictions
+            
+            val url = appRestrictions?.getString("backend_url")
+            if (url != null) {
+                Log.d(TAG, "Using managed configuration backend URL: $url")
+            }
+            url
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not read managed configuration: ${e.message}")
+            null
         }
     }
 

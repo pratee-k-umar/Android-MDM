@@ -292,6 +292,184 @@ class SetupActivity : ComponentActivity() {
         onComplete: () -> Unit
     ) {
         try {
+            // Detect if device is enterprise-provisioned
+            val isEnterpriseDevice = policyHelper.isDeviceOwner()
+            
+            Log.d(TAG, "Setup mode: ${if (isEnterpriseDevice) "ENTERPRISE" else "MANUAL"}")
+            
+            if (isEnterpriseDevice) {
+                // Enterprise provisioning - simplified flow
+                // Managed account, permissions, and restrictions handled by cloud policy
+                runEnterpriseSetup(onStateChange, onError, onComplete)
+            } else {
+                // Manual setup - full flow (for testing/development)
+                runManualSetup(onStateChange, onPinGenerated, onError, onComplete)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Setup failed", e)
+            onError(e.message ?: "Unknown error occurred")
+        }
+    }
+    
+    /**
+     * Enterprise provisioning setup
+     * Device is already provisioned via Android Management API:
+     * - App is force-installed
+     * - Permissions auto-granted  
+     * - Managed account created automatically
+     * - Screen lock enforced by policy
+     * - FRP protection via managed account
+     */
+    private suspend fun runEnterpriseSetup(
+        onStateChange: (SetupState, String) -> Unit,
+        onError: (String) -> Unit,
+        onComplete: () -> Unit
+    ) {
+        Log.d(TAG, "Starting enterprise provisioning setup")
+        
+        // Step 1: Initialize device info
+        onStateChange(SetupState.INITIALIZING, "Initializing enterprise device...")
+        delay(500)
+        
+        val deviceId = DeviceUtils.generateDeviceId(this@SetupActivity)
+        preferencesManager.setDeviceId(deviceId)
+        
+        preferencesManager.setShopInfo(Constants.SHOP_ID, Constants.SHOP_NAME)
+        preferencesManager.setBackendUrl(Constants.BACKEND_URL)
+        
+        Log.d(TAG, "Device ID: $deviceId")
+        
+        // Step 2: Get device identifiers
+        onStateChange(SetupState.REGISTERING, "Collecting device information...")
+        delay(500)
+        
+        val serialNumber = policyHelper.getDeviceSerialNumber()
+        var imei = policyHelper.getDeviceIMEI()
+        
+        // Handle IMEI for emulator vs real device
+        if (imei == null || imei == "000000000000000") {
+            val isEmulator = android.os.Build.FINGERPRINT.contains("generic") || 
+                             android.os.Build.MODEL.contains("Emulator") ||
+                             android.os.Build.PRODUCT.contains("sdk")
+            
+            if (isEmulator) {
+                imei = "123456789012345"
+                Log.w(TAG, "Running on emulator - using test IMEI: $imei")
+            } else {
+                Log.e(TAG, "Failed to get IMEI from real device")
+                throw Exception("IMEI required for device registration.")
+            }
+        }
+        
+        preferencesManager.setImei(imei)
+        Log.d(TAG, "IMEI: $imei, Serial: $serialNumber")
+        
+        // Step 3: Get location if available (permissions auto-granted by policy)
+        var currentLocation: Location? = null
+        try {
+            if (ActivityCompat.checkSelfPermission(
+                    this@SetupActivity,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                currentLocation = fusedLocationClient.getCurrentLocation(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    object : CancellationToken() {
+                        override fun onCanceledRequested(p0: OnTokenCanceledListener) = CancellationTokenSource().token
+                        override fun isCancellationRequested() = false
+                    }
+                ).await()
+                Log.d(TAG, "Location: ${currentLocation?.latitude}, ${currentLocation?.longitude}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not get location: ${e.message}")
+        }
+        
+        // Step 4: Get FCM token (may be null initially)
+        val fcmToken = preferencesManager.getFcmToken()
+        
+        if (fcmToken != null) {
+            Log.d(TAG, "✅ FCM Token available: ${fcmToken.take(20)}...")
+        } else {
+            Log.w(TAG, "⚠️ FCM Token not available yet")
+            Log.w(TAG, "→ Device will register without FCM token")
+            Log.w(TAG, "→ Token will be sent to backend automatically when generated")
+            Log.w(TAG, "→ Management API provides fallback for device control")
+        }
+        
+        // Step 5: Register with backend (NO PIN - managed account handles FRP)
+        // FCM token can be null - it will be updated later via onNewToken()
+        try {
+            val result = deviceRepository.registerDevice(
+                deviceId = deviceId,
+                serialNumber = serialNumber,
+                imei = imei,
+                fcmToken = fcmToken,  // ← Can be null, will update later
+                shopId = Constants.SHOP_ID,
+                shopOwnerEmail = null,  // Managed account email handled by enterprise
+                devicePin = null,  // NO PIN - managed account + policy handles FRP
+                latitude = currentLocation?.latitude,
+                longitude = currentLocation?.longitude
+            )
+            
+            result.onSuccess {
+                Log.d(TAG, "✅ Enterprise device registered successfully")
+            }.onFailure { error ->
+                Log.e(TAG, "❌ Registration failed: ${error.message}")
+                throw error
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Backend registration failed", e)
+            onError("Failed to register device: ${e.message}")
+            return
+        }
+        
+        // Step 6: Apply device-specific restrictions
+        onStateChange(SetupState.APPLYING_RESTRICTIONS, "Finalizing device setup...")
+        delay(500)
+        
+        // Suppress device owner notifications
+        policyHelper.suppressDeviceOwnerNotifications()
+        
+        // Apply any additional app-specific restrictions
+        // (Cloud policy handles most restrictions, this is for app-specific ones)
+        policyHelper.applyDeviceRestrictions()
+        
+        // Step 7: Mark setup complete and start background service
+        preferencesManager.setSetupComplete(true)
+        Log.d(TAG, "Setup marked as complete")
+        
+        // Start background monitoring service
+        try {
+            val serviceIntent = Intent(this@SetupActivity, DeviceMonitorService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            Log.d(TAG, "DeviceMonitorService started")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start DeviceMonitorService", e)
+        }
+        
+        // Setup complete!
+        onComplete()
+        Log.d(TAG, "✅ Enterprise setup completed successfully")
+    }
+    
+    /**
+     * Manual setup flow (fallback for testing/development)
+     * Requires manual Google account addition and PIN setup
+     */
+    private suspend fun runManualSetup(
+        onStateChange: (SetupState, String) -> Unit,
+        onPinGenerated: (String) -> Unit,
+        onError: (String) -> Unit,
+        onComplete: () -> Unit
+    ) {
+        Log.d(TAG, "Starting manual setup flow")
+        
+        try {
             // Step 1: Initialize
             onStateChange(SetupState.INITIALIZING, "Preparing device...")
             delay(500)
@@ -436,29 +614,27 @@ class SetupActivity : ComponentActivity() {
             val fcmToken = preferencesManager.getFcmToken()
             Log.d(TAG, "FCM Token available: ${fcmToken != null}")
 
-            try {
-                val result = deviceRepository.registerDevice(
-                    deviceId = deviceId,
-                    serialNumber = serialNumber,
-                    imei = imei,
-                    fcmToken = fcmToken,  // May be null if not yet generated
-                    shopId = Constants.SHOP_ID,
-                    shopOwnerEmail = policyHelper.getFirstGoogleAccount()?.name,
-                    devicePin = pin,  // Pass the generated PIN
-                    latitude = currentLocation?.latitude,
-                    longitude = currentLocation?.longitude
-                )
+            val result = deviceRepository.registerDevice(
+                deviceId = deviceId,
+                serialNumber = serialNumber,
+                imei = imei,
+                fcmToken = fcmToken,  // May be null if not yet generated
+                shopId = Constants.SHOP_ID,
+                shopOwnerEmail = policyHelper.getFirstGoogleAccount()?.name,
+                devicePin = pin,  // Pass the generated PIN
+                latitude = currentLocation?.latitude,
+                longitude = currentLocation?.longitude
+            )
 
-                result.onSuccess { response ->
-                    Log.d(TAG, "Device registered: ${response.message}")
-                }
-
-                result.onFailure { error ->
-                    Log.e(TAG, "Registration failed: ${error.message}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Registration error: ${e.message}")
+            result.onSuccess { response ->
+                Log.d(TAG, "Device registered: ${response.message}")
             }
+
+            result.onFailure { error ->
+                Log.e(TAG, "Registration failed: ${error.message}")
+                throw error
+            }
+
 
             // Step 5: Complete
             preferencesManager.setSetupComplete(true)
