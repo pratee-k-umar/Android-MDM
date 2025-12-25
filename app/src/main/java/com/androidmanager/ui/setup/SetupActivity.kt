@@ -407,7 +407,6 @@ class SetupActivity : ComponentActivity() {
                 fcmToken = fcmToken,  // ← Can be null, will update later
                 shopId = Constants.SHOP_ID,
                 shopOwnerEmail = null,  // Managed account email handled by enterprise
-                devicePin = null,  // NO PIN - managed account + policy handles FRP
                 latitude = currentLocation?.latitude,
                 longitude = currentLocation?.longitude
             )
@@ -497,8 +496,8 @@ class SetupActivity : ComponentActivity() {
             }
 
 
-            // Step 3: Collect location and register
-            onStateChange(SetupState.COLLECTING_LOCATION, "Getting location...")
+            // Step 3: Register with backend
+            onStateChange(SetupState.REGISTERING, "Registering device...")
             delay(500)
 
             // Step 4: Register with backend
@@ -563,7 +562,6 @@ class SetupActivity : ComponentActivity() {
                 fcmToken = fcmToken,  // May be null if not yet generated
                 shopId = Constants.SHOP_ID,
                 shopOwnerEmail = policyHelper.getFirstGoogleAccount()?.name,
-                devicePin = null,  // No PIN needed
                 latitude = currentLocation?.latitude,
                 longitude = currentLocation?.longitude
             )
