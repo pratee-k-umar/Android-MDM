@@ -75,8 +75,7 @@ class DeviceSyncWorker(
 
             val repository = DeviceRepository(preferencesManager)
             
-            // Send heartbeat
-            repository.sendHeartbeat()
+            // Heartbeat removed - location updates provide implicit device activity tracking
 
             // Check for pending commands
             val commandsResult = repository.getPendingCommands()

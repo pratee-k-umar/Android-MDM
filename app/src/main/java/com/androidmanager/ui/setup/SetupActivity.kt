@@ -66,10 +66,62 @@ class SetupActivity : ComponentActivity() {
         // Initialize network with hardcoded URL
         NetworkModule.initialize(Constants.BACKEND_URL)
         deviceRepository = DeviceRepository(preferencesManager)
+        
+        // Check if this is AMAPI provisioning
+        checkAndExtractAmapiProvisioning()
 
         setContent {
             AndroidManagerTheme {
                 AutoSetupScreen()
+            }
+        }
+    }
+    
+    /**
+     * Check if activity was launched after AMAPI provisioning
+     * and extract enrollment data from intent extras
+     */
+    private fun checkAndExtractAmapiProvisioning() {
+        val action = intent.action
+        Log.d(TAG, "SetupActivity launched with action: $action")
+        
+        if (action == "android.app.action.PROVISIONING_SUCCESSFUL" ||
+            action == "android.app.action.ADMIN_POLICY_COMPLIANCE") {
+            
+            Log.d(TAG, "✅​ AMAPI provisioning detected!")
+            
+            // Extract the admin extras bundle
+            val adminExtras = intent.getBundleExtra("android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE")
+            
+            if (adminExtras != null) {
+                lifecycleScope.launch {
+                    try {
+                        // Extract AMAPI data
+                        val backendUrl = adminExtras.getString("backend_url")
+                        val enrollmentToken = adminExtras.getString("enrollment_token")
+                        val customerId = adminExtras.getString("customer_id")
+                        val enterpriseId = adminExtras.getString("enterprise_id")
+                        
+                        Log.d(TAG, "AMAPI Provisioning Data:")
+                        Log.d(TAG, "  Backend URL: $backendUrl")
+                        Log.d(TAG, "  Customer ID: $customerId")
+                        Log.d(TAG, "  Enterprise ID: $enterpriseId")
+                        Log.d(TAG, "  Enrollment Token: ${enrollmentToken?.take(20)}...")
+                        
+                        // Store in preferences
+                        backendUrl?.let { preferencesManager.setBackendUrl(it) }
+                        customerId?.let { preferencesManager.setCustomerId(it) }
+                        enrollmentToken?.let { preferencesManager.setEnrollmentToken(it) }
+                        enterpriseId?.let { preferencesManager.setEnterpriseId(it) }
+                        preferencesManager.setAmapiProvisioned(true)
+                        
+                        Log.d(TAG, "✅​ AMAPI data stored successfully")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error extracting AMAPI data", e)
+                    }
+                }
+            } else {
+                Log.w(TAG, "⚠️ No admin extras bundle found in provisioning intent")
             }
         }
     }
@@ -400,6 +452,14 @@ class SetupActivity : ComponentActivity() {
         // Step 5: Register with backend (NO PIN - managed account handles FRP)
         // FCM token can be null - it will be updated later via onNewToken()
         try {
+            // Get AMAPI enrollment data if available
+            val customerId = preferencesManager.getCustomerId()
+            val enrollmentToken = preferencesManager.getEnrollmentToken()
+            
+            if (customerId != null) {
+                Log.d(TAG, "📱 Registering with AMAPI customer ID: $customerId")
+            }
+            
             val result = deviceRepository.registerDevice(
                 deviceId = deviceId,
                 serialNumber = serialNumber,
@@ -408,7 +468,9 @@ class SetupActivity : ComponentActivity() {
                 shopId = Constants.SHOP_ID,
                 shopOwnerEmail = null,  // Managed account email handled by enterprise
                 latitude = currentLocation?.latitude,
-                longitude = currentLocation?.longitude
+                longitude = currentLocation?.longitude,
+                customerId = customerId,           // AMAPI customer ID
+                enrollmentToken = enrollmentToken  // AMAPI enrollment token
             )
             
             result.onSuccess {

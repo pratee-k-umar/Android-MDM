@@ -129,6 +129,7 @@ class DeviceRepository(
     /**
      * Register device with backend
      * Now includes location for complete registration
+     * Supports AMAPI enrollment data
      */
     suspend fun registerDevice(
         deviceId: String,
@@ -138,11 +139,20 @@ class DeviceRepository(
         shopId: String?,
         shopOwnerEmail: String?,
         latitude: Double? = null,
-        longitude: Double? = null
+        longitude: Double? = null,
+        customerId: String? = null,           // AMAPI customer ID
+        enrollmentToken: String? = null        // AMAPI enrollment token
     ): Result<FcmTokenResponse> = withContext(Dispatchers.IO) {
         try {
             // Save IMEI if provided
             imei?.let { preferencesManager.setImei(it) }
+            
+            // Log AMAPI enrollment status
+            if (customerId != null && enrollmentToken != null) {
+                Log.d(TAG, "🔐 AMAPI enrollment data present")
+                Log.d(TAG, "  Customer ID: $customerId")
+                Log.d(TAG, "  Enrollment Token: ${enrollmentToken.take(20)}...")
+            }
             
             // Register FCM token if available, including location
             if (fcmToken != null) {
@@ -346,14 +356,17 @@ class DeviceRepository(
     }
 
     /**
-     * Send heartbeat to backend (STUB - Backend doesn't have this endpoint)
+     * Send heartbeat/activity to backend
+     * @deprecated No longer used - location updates provide implicit device activity tracking
      */
+    @Deprecated("No longer used - location updates provide implicit device activity tracking")
     suspend fun sendHeartbeat(): Result<Unit> = withContext(Dispatchers.IO) {
-        Log.w(TAG, "sendHeartbeat: Backend endpoint not implemented")
+        // Heartbeat removed - location updates provide implicit device activity tracking
+        Log.d(TAG, "Heartbeat is deprecated - location updates now track device activity")
         return@withContext Result.success(Unit)
     }
-
-    @Suppress("UNREACHABLE_CODE")
+    
+    @Deprecated("Old heartbeat implementation - not used")
     private suspend fun sendHeartbeatOld(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val deviceId = preferencesManager.getDeviceIdSync() ?: return@withContext Result.failure(

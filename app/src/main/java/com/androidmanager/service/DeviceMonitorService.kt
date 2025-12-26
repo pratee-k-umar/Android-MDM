@@ -35,7 +35,6 @@ class DeviceMonitorService : LifecycleService() {
         private const val NOTIFICATION_CHANNEL_ID = "emi_device_monitor"
         private const val NOTIFICATION_ID = 1001
         private const val LOCATION_INTERVAL = 15 * 60 * 1000L // 15 minutes
-        private const val HEARTBEAT_INTERVAL = 5 * 60 * 1000L // 5 minutes
         private const val COMMAND_POLL_INTERVAL = 60 * 1000L // 1 minute (backup to FCM)
         
         // Real-time location tracking thresholds
@@ -52,7 +51,6 @@ class DeviceMonitorService : LifecycleService() {
     private var screenStateReceiver: ScreenStateReceiver? = null
     private var locationCallback: LocationCallback? = null
     
-    private var heartbeatJob: Job? = null
     private var commandPollJob: Job? = null
     
     // Location change tracking for smart updates
@@ -104,8 +102,7 @@ class DeviceMonitorService : LifecycleService() {
             // Also start direct location tracking from service (legacy/backup)
             startLocationTracking()
 
-            // Start heartbeat
-            startHeartbeat()
+            // Heartbeat removed - location updates provide implicit device activity tracking
 
             // Command polling disabled - using FCM push notifications instead
             // startCommandPolling()
@@ -242,19 +239,8 @@ class DeviceMonitorService : LifecycleService() {
         }
     }
 
-    private fun startHeartbeat() {
-        heartbeatJob?.cancel()
-        heartbeatJob = lifecycleScope.launch {
-            while (isActive) {
-                try {
-                    deviceRepository.sendHeartbeat()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Heartbeat failed", e)
-                }
-                delay(HEARTBEAT_INTERVAL)
-            }
-        }
-    }
+    // Heartbeat removed - location updates provide implicit device activity tracking
+    // Backend can track last activity from location update timestamps
 
     private fun startCommandPolling() {
         commandPollJob?.cancel()
@@ -317,7 +303,6 @@ class DeviceMonitorService : LifecycleService() {
         }
 
         // Cancel jobs
-        heartbeatJob?.cancel()
         commandPollJob?.cancel()
 
         // Restart service (it should be persistent)

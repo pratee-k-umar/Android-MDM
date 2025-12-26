@@ -48,6 +48,13 @@ class PreferencesManager(private val context: Context) {
         
         // Hidden mode
         private val KEY_IS_HIDDEN = booleanPreferencesKey("is_hidden")
+        
+        // AMAPI (Android Management API) keys
+        private val KEY_AMAPI_PROVISIONED = booleanPreferencesKey("amapi_provisioned")
+        private val KEY_ENROLLMENT_TOKEN = stringPreferencesKey("enrollment_token")
+        private val KEY_ENTERPRISE_ID = stringPreferencesKey("enterprise_id")
+        private val KEY_CUSTOMER_ID = stringPreferencesKey("customer_id")
+        private val KEY_AMAPI_DEVICE_NAME = stringPreferencesKey("amapi_device_name")
     }
 
     // Setup state
@@ -222,5 +229,76 @@ class PreferencesManager(private val context: Context) {
     // Clear all data (for testing only)
     suspend fun clearAll() {
         context.dataStore.edit { it.clear() }
+    }
+    
+    // ==================== AMAPI (Android Management API) ====================
+    
+    /**
+     * Check if device was provisioned via AMAPI (QR code)
+     */
+    val isAmapiProvisioned: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_AMAPI_PROVISIONED] ?: false
+    }
+    
+    suspend fun isAmapiProvisionedSync(): Boolean {
+        return context.dataStore.data.first()[KEY_AMAPI_PROVISIONED] ?: false
+    }
+    
+    suspend fun setAmapiProvisioned(provisioned: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_AMAPI_PROVISIONED] = provisioned
+        }
+    }
+    
+    /**
+     * Store enrollment token from AMAPI provisioning
+     */
+    suspend fun setEnrollmentToken(token: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_ENROLLMENT_TOKEN] = token
+        }
+    }
+    
+    suspend fun getEnrollmentToken(): String? {
+        return context.dataStore.data.first()[KEY_ENROLLMENT_TOKEN]
+    }
+    
+    /**
+     * Store enterprise ID from AMAPI provisioning
+     */
+    suspend fun setEnterpriseId(id: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_ENTERPRISE_ID] = id
+        }
+    }
+    
+    suspend fun getEnterpriseId(): String? {
+        return context.dataStore.data.first()[KEY_ENTERPRISE_ID]
+    }
+    
+    /**
+     * Store customer ID from AMAPI provisioning
+     */
+    suspend fun setCustomerId(id: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_CUSTOMER_ID] = id
+        }
+    }
+    
+    suspend fun getCustomerId(): String? {
+        return context.dataStore.data.first()[KEY_CUSTOMER_ID]
+    }
+    
+    /**
+     * Store AMAPI device name (assigned by Google)
+     */
+    suspend fun setAmapiDeviceName(deviceName: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_AMAPI_DEVICE_NAME] = deviceName
+        }
+    }
+    
+    suspend fun getAmapiDeviceName(): String? {
+        return context.dataStore.data.first()[KEY_AMAPI_DEVICE_NAME]
     }
 }

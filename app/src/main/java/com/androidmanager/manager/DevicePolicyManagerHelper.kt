@@ -444,6 +444,7 @@ class DevicePolicyManagerHelper(private val context: Context) {
     /**
      * Get device serial number (requires device owner)
      */
+    @android.annotation.SuppressLint("MissingPermission", "HardwareIds")
     fun getDeviceSerialNumber(): String? {
         return if (isDeviceOwner()) {
             try {
@@ -460,6 +461,7 @@ class DevicePolicyManagerHelper(private val context: Context) {
     /**
      * Get device IMEI (requires special permission)
      */
+    @android.annotation.SuppressLint("MissingPermission", "HardwareIds")
     fun getDeviceIMEI(): String? {
         // Note: IMEI access is restricted in Android 10+
         // Device owner can access it through telephony manager

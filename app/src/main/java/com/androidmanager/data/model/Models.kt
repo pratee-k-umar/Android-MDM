@@ -208,7 +208,8 @@ data class LockScreenState(
 data class LocationUpdateRequest(
     val imei1: String,
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    val isActive: Boolean = true // Indicates device is online and actively sending updates
 )
 
 /**
@@ -227,3 +228,36 @@ data class LocationUpdateData(
     val customerName: String,
     val location: LocationInfo
 )
+
+/**
+ * Device activity/heartbeat request
+ */
+@Serializable
+data class DeviceActivityRequest(
+    val imei1: String,
+    val activityType: String = "heartbeat", // "heartbeat", "app_start", "location_update", etc.
+    val timestamp: String? = null,
+    val batteryLevel: Int? = null,
+    val isCharging: Boolean? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+)
+
+/**
+ * Device activity response
+ */
+@Serializable
+data class DeviceActivityResponse(
+    val success: Boolean,
+    val message: String,
+    val data: DeviceActivityData?
+)
+
+@Serializable
+data class DeviceActivityData(
+    val customerId: String,
+    val customerName: String,
+    val lastActivity: String,
+    val isOnline: Boolean
+)
+

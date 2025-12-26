@@ -62,6 +62,19 @@ class EMIDeviceManagerApp : Application() {
         // Log device owner status
         Log.d(TAG, "Is Device Owner: ${policyHelper.isDeviceOwner()}")
         Log.d(TAG, "Is Admin Active: ${policyHelper.isAdminActive()}")
+        
+        // Log AMAPI provisioning status
+        applicationScope.launch {
+            val isAmapiProvisioned = preferencesManager.isAmapiProvisionedSync()
+            val customerId = preferencesManager.getCustomerId()
+            val enterpriseId = preferencesManager.getEnterpriseId()
+            
+            Log.d(TAG, "AMAPI Provisioned: $isAmapiProvisioned")
+            if (isAmapiProvisioned) {
+                Log.d(TAG, "  Customer ID: $customerId")
+                Log.d(TAG, "  Enterprise ID: $enterpriseId")
+            }
+        }
     }
 
     private fun createNotificationChannel() {

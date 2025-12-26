@@ -98,4 +98,12 @@ interface ApiService {
     suspend fun updateCustomerLocation(
         @Body request: LocationUpdateRequest
     ): Response<LocationUpdateResponse>
+    
+    /**
+     * Send device activity/heartbeat (Customer Device API)
+     */
+    @POST("api/customer/device/activity")
+    suspend fun sendDeviceActivity(
+        @Body request: DeviceActivityRequest
+    ): Response<DeviceActivityResponse>
 }
