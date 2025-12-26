@@ -47,3 +47,5 @@ CUSTOMER_DEVICE_API_DOCUMENTATION.md
 *.aab
 *.ap_
 *.dex
+
+android-manager
