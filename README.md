@@ -1,102 +1,70 @@
-# Android Device Manager
+# Android Manager - Enterprise Device Management
 
-An enterprise Android device management application for EMI-based device sales. This application enables shop owners to remotely manage customer devices through device owner privileges, implementing features like remote lock/unlock, location tracking, and EMI payment reminders.
+Enterprise Android device management app with **AMAPI (Android Management API)** integration for zero-touch provisioning, real-time location tracking, and remote device control.
 
-## 🎯 Features
+---
+
+## 🎯 **Key Features**
+
+### AMAPI Integration
+- ✅ **QR Code Provisioning** - Zero-touch device enrollment during factory reset
+- ✅ **Enterprise Policy Management** - Centralized policy enforcement from backend
+- ✅ **Automatic Device Owner Setup** - No manual adb commands required
 
 ### Device Management
-
-- **Remote Lock/Unlock** - Control device access via Firebase Cloud Messaging (FCM)
-- **Real-time Location Tracking** - Monitor device location with 15-minute periodic updates
-- **Device Owner Mode** - Full administrative control using Android Device Policy Manager
-- **Factory Reset Protection (FRP)** - Secure devices with Google account binding
-
-### Security
-
-- **Automatic PIN Generation** - Secure 6-digit PIN creation during setup
-- **Account Management** - Multi-account setup with locked modifications
-- **Device Restrictions** - Comprehensive restrictions to prevent unauthorized changes
-- **Kiosk Mode** - Lock screen overlay during device lock state
+- ✅ **Remote Lock/Unlock** - Control device access via Firebase Cloud Messaging
+- ✅ **Real-time Location Tracking** - Smart throttling with 15-minute/50-meter thresholds
+- ✅ **Factory Reset Protection (FRP)** - Secure devices with Google account binding
+- ✅ **Device Owner Mode** - Full administrative control
 
 ### Backend Integration
+- ✅ **Automated Registration** - Device auto-registers with backend on first boot
+- ✅ **FCM Push Notifications** - Real-time commands and status updates
+- ✅ **Location Reporting** - Periodic updates to backend with online status
 
-- **FCM Push Notifications** - Real-time device commands and EMI reminders
-- **Device Registration** - Automatic backend registration with IMEI, PIN, and location
-- **Heartbeat Monitoring** - Periodic device status updates (every 5 minutes)
-- **Location Updates** - Automated location reporting to backend
+---
 
-## 🏗️ Architecture
+## 🏗️ **Tech Stack**
 
-### Tech Stack
+| Component | Technology |
+|-----------|------------|
+| **Language** | Kotlin |
+| **UI** | Jetpack Compose |
+| **Async** | Coroutines + Flow |
+| **Networking** | Retrofit + OkHttp |
+| **Storage** | DataStore Preferences |
+| **Background Work** | WorkManager + Services |
+| **Push Notifications** | Firebase Cloud Messaging |
+| **Location** | Google Play Services Location |
+| **Enterprise** | Android Management API (AMAPI) |
 
-- **Language:** Kotlin
-- **UI:** Jetpack Compose
-- **Async:** Kotlin Coroutines + Flow
-- **Networking:** Retrofit + OkHttp
-- **Local Storage:** Room Database + DataStore Preferences
-- **Background Work:** WorkManager
-- **Push Notifications:** Firebase Cloud Messaging (FCM)
-- **Location:** Google Play Services Location API
+---
 
-### Key Components
+## 📋 **Prerequisites**
 
-```
-app/
-├── data/
-│   ├── local/          # Room DB, PreferencesManager
-│   ├── model/          # Data models
-│   ├── remote/         # API service, NetworkModule
-│   └── repository/     # DeviceRepository
-├── manager/            # DevicePolicyManagerHelper
-├── service/            # Background services (FCM, monitoring, workers)
-├── ui/
-│   ├── lock/          # Lock screen UI
-│   └── setup/         # Initial setup flow
-└── EMIDeviceManagerApp.kt
-```
+- **Android Studio** Hedgehog (2023.1.1) or newer
+- **JDK** 11+
+- **Android SDK** 34+
+- **Firebase Project** with billing enabled
+- **Backend** with AMAPI integration ([Backend Repo](https://github.com/your-backend-repo))
 
-## 📋 Prerequisites
+---
 
-### Development Environment
+## 🚀 **Quick Start**
 
-- Android Studio Hedgehog (2023.1.1) or newer
-- JDK 11 or higher
-- Android SDK 34 (API level 34)
-- Gradle 8.0+
-
-### Firebase Project
-
-- Firebase project with **billing enabled** (required for FCM)
-- `google-services.json` configured (see [FIREBASE_SETUP.md](FIREBASE_SETUP.md))
-- Firebase Cloud Messaging enabled
-
-### Backend API
-
-- Backend server implementing the Customer Device API
-- HTTPS endpoint for device registration and commands
-- (API documentation: `CUSTOMER_DEVICE_API_DOCUMENTATION.md` - internal)
-
-## 🚀 Setup Instructions
-
-### 1. Clone the Repository
+### 1. Clone & Setup
 
 ```bash
-git clone <repository-url>
+git clone <repo-url>
 cd AndroidManager
+
+# Add google-services.json to app/
+# (Download from Firebase Console)
 ```
 
-### 2. Configure Firebase
+### 2. Configure Constants
 
-Follow the detailed instructions in [FIREBASE_SETUP.md](FIREBASE_SETUP.md):
-
-- Create Firebase project with billing enabled
-- Add Android app to Firebase
-- Download `google-services.json`
-- Configure service account for backend integration
-
-### 3. Configure Backend URL
-
-Update `Constants.kt` with your backend details:
+**File:** `app/src/main/java/com/androidmanager/util/Constants.kt`
 
 ```kotlin
 object Constants {
@@ -106,98 +74,74 @@ object Constants {
 }
 ```
 
-### 4. Build and Install
+### 3. Build Release APK
 
 ```bash
-# Debug build
-./gradlew assembleDebug
-
-# Install on connected device
-./gradlew installDebug
+./gradlew clean assembleRelease
 ```
 
-## 📱 Device Provisioning
+APK will be at: `app/build/outputs/apk/release/app-release.apk`
 
-### QR Code Provisioning (Recommended)
+---
 
-1. Factory reset the device
-2. On "Welcome" screen, tap 6 times on the same spot
-3. Scan QR code with provisioning data:
+## 📱 **Provisioning Methods**
 
-```json
-{
-  "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": "com.androidmanager/.receiver.EMIDeviceAdminReceiver",
-  "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": "<APK_URL>",
-  "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": true,
-  "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true
-}
+### Method 1: AMAPI QR Provisioning (Production)
+
+**Backend generates QR code:**
+```bash
+POST /api/admin/amapi/qr/:customerId
 ```
 
-### Manual Provisioning (Testing)
+**QR contains:**
+- App download URL
+- Enrollment token
+- Backend URL
+- Customer ID
+
+**Provisioning flow:**
+1. Factory reset device
+2. Scan QR during setup wizard
+3. Device downloads & installs app automatically
+4. AMAPI applies policy (restrictions, location, etc.)
+5. App registers with backend
+6. Done! ✅
+
+### Method 2: Manual (Testing)
 
 ```bash
+# Install APK
+adb install app-release.apk
+
+# Set as Device Owner
 adb shell dpm set-device-owner com.androidmanager/.receiver.EMIDeviceAdminReceiver
 ```
 
-### Setup Flow
+---
 
-After provisioning, the app will:
-
-1. Generate random 6-digit PIN
-2. Apply device restrictions
-3. Prompt for shop owner's Google account (FRP)
-4. Option to add customer's personal accounts (up to 2 more)
-5. Lock all account modifications
-6. Register device with backend
-7. Start monitoring services
-
-## 🔧 Configuration
-
-### App Constants
-
-Edit `app/src/main/java/com/androidmanager/util/Constants.kt`:
-
-- `BACKEND_URL` - Your backend API endpoint
-- `SHOP_ID` - Unique shop identifier
-- `SHOP_NAME` - Display name for shop
-
-### Permissions
-
-Required permissions are auto-granted in Device Owner mode:
-
-- `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` - Location tracking
-- `POST_NOTIFICATIONS` - EMI reminders (Android 13+)
-- `INTERNET` / `ACCESS_NETWORK_STATE` - Backend communication
-
-## 🔐 Security Features
+## 🔐 **Security & Privacy**
 
 ### Factory Reset Protection (FRP)
-
-- Shop owner's Google account is set as device admin during setup
-- Even if removed from settings, the account is required after factory reset
+- Device requires shop owner's Google account after factory reset
 - Prevents unauthorized device resets
 
-### Account Locking
+### Device Restrictions (via AMAPI Policy)
+- Factory reset disabled
+- USB file transfer blocked
+- Unknown sources installation blocked
+- System settings locked
+- Location tracking enforced
 
-- After setup, `DISALLOW_MODIFY_ACCOUNTS` restriction is applied
-- No accounts can be added or removed by end user
-- Shop owner account and optional customer accounts are locked in place
+### Data Handling
+- **Location:** Sent to backend every 15 min or when moved 50+ meters
+- **IMEI:** Used for device identification
+- **FCM Token:** For backend commands
 
-### Device Restrictions
+---
 
-Applied during setup:
-
-- `DISALLOW_FACTORY_RESET` - Prevent factory reset
-- `DISALLOW_ADD_USER` / `DISALLOW_REMOVE_USER` - User management
-- `DISALLOW_INSTALL_UNKNOWN_SOURCES` - Block sideloading
-- `DISALLOW_USB_FILE_TRANSFER` - Prevent data theft
-- And more... (see `DevicePolicyManagerHelper.kt`)
-
-## 📡 Backend Integration
+## 📡 **Backend Integration**
 
 ### Device Registration
-
-On first setup:
 
 ```http
 PUT /api/customer/device/fcm-token
@@ -205,8 +149,7 @@ Content-Type: application/json
 
 {
   "fcmToken": "<token>",
-  "imei1": "<device-imei>",
-  "devicePin": "123456",
+  "imei1": "<imei>",
   "latitude": 28.7041,
   "longitude": 77.1025
 }
@@ -214,10 +157,7 @@ Content-Type: application/json
 
 ### FCM Commands
 
-Backend sends commands via FCM:
-
 **Lock Device:**
-
 ```json
 {
   "type": "DEVICE_LOCK_STATUS",
@@ -226,7 +166,6 @@ Backend sends commands via FCM:
 ```
 
 **Unlock Device:**
-
 ```json
 {
   "type": "DEVICE_LOCK_STATUS",
@@ -234,88 +173,116 @@ Backend sends commands via FCM:
 }
 ```
 
-**EMI Reminder:**
+---
 
-```json
-{
-  "type": "EMI_REMINDER",
-  "action": "SHOW_NOTIFICATION",
-  "message": "Your EMI is due",
-  "pendingAmount": "5000",
-  "pendingEmisCount": "2"
-}
+## 📂 **Project Structure**
+
 ```
-
-### Automated Tasks
-
-- **Location Updates:** Every 15 minutes via WorkManager
-- **Heartbeat:** Every 5 minutes via DeviceMonitorService
-- **Lock Status Reports:** Sent after lock/unlock operations
-
-## 🐛 Troubleshooting
-
-### FCM Token Not Generating
-
-**Error:** `Firebase Installations Service is unavailable`
-
-**Solution:** Enable billing on Firebase project:
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Select your project
-3. Navigate to Billing → Link a billing account
-
-### Device Owner Provisioning Failed
-
-**Error:** `Not allowed to set the device owner`
-
-**Causes:**
-
-- Device has Google accounts already added
-- Device is not factory reset
-- Work profile exists
-
-**Solution:** Factory reset and provision before adding any accounts
-
-### Location Not Updating
-
-Check:
-
-- Location permissions granted
-- Google Play Services installed and updated
-- GPS enabled on device
-- Device has internet connectivity
-
-## 📝 Development Notes
-
-### Testing Without Device Owner
-
-Some features (restrictions, account locking) require Device Owner mode. For testing:
-
-1. Use Android Emulator with Google Play
-2. Factory reset emulator
-3. Use `adb shell dpm set-device-owner` command
-
-### FCM Message Deduplication
-
-The app ignores duplicate FCM messages received within 5 seconds to prevent UI freezes during message floods (e.g., after device reconnects to network).
-
-### Build Variants
-
-- **Debug:** Includes logging, allows USB debugging
-- **Release:** Optimized build, minimal logging (configure in `build.gradle.kts`)
-
-## 📄 License
-
-[Add your license here]
-
-## 🤝 Contributing
-
-[Add contribution guidelines if applicable]
-
-## 📞 Support
-
-[Add support contact information]
+app/
+├── data/
+│   ├── local/          # PreferencesManager (AMAPI data storage)
+│   ├── model/          # Data models
+│   ├── remote/         # API service, NetworkModule
+│   └── repository/     # DeviceRepository
+├── manager/            # DevicePolicyManagerHelper
+├── receiver/           # EMIDeviceAdminReceiver (AMAPI provisioning)
+├── service/            
+│   ├── DeviceMonitorService.kt
+│   └── EMIFirebaseMessagingService.kt
+├── ui/
+│   ├── lock/          # Lock screen overlay
+│   └── setup/         # SetupActivity (AMAPI data extraction)
+└── EMIDeviceManagerApp.kt
+```
 
 ---
 
-**⚠️ Important:** This application uses Device Owner mode which has significant system-level control. Only deploy to devices you own/manage. Ensure compliance with local laws and regulations regarding device monitoring and user privacy.
+## 🔧 **Configuration Files**
+
+| File | Purpose | Commit to Git? |
+|------|---------|----------------|
+| `google-services.json` | Firebase config | ❌ No (in .gitignore) |
+| `android-manager.jks` | Signing keystore | ❌ NEVER! |
+| `Constants.kt` | Backend URL | ✅ Yes (or use BuildConfig) |
+
+---
+
+## 🐛 **Troubleshooting**
+
+### FCM Token Not Generating
+
+**Error:** `Firebase Installations Service unavailable`
+
+**Fix:** Enable billing on Firebase project:
+1. [Google Cloud Console](https://console.cloud.google.com/)
+2. Select project → Billing → Link account
+
+### AMAPI Provisioning Failed
+
+**Error:** Device doesn't download app
+
+**Check:**
+- ✅ APK hosted publicly (GitHub Releases, Firebase Hosting)
+- ✅ Backend `.env` has correct `APP_DOWNLOAD_URL`
+- ✅ Backend `.env` has correct `APP_SIGNATURE_CHECKSUM` (SHA-256 without colons)
+- ✅ Device has internet during setup
+
+### Location Not Updating
+
+**Check:**
+- ✅ Device has GPS enabled
+- ✅ Google Play Services installed
+- ✅ AMAPI policy allows location access
+- ✅ Device has internet connectivity
+
+---
+
+## 📖 **Additional Documentation**
+
+- **[BUILD_RELEASE_GUIDE.md](BUILD_RELEASE_GUIDE.md)** - Complete APK build & hosting guide
+- **[AMAPI_API_DOCUMENTATION.md](AMAPI_API_DOCUMENTATION.md)** - Backend AMAPI API reference
+- **[FIREBASE_SETUP.md](FIREBASE_SETUP.md)** - Firebase project configuration
+
+---
+
+## 🔑 **Environment Variables (Backend)**
+
+Required in backend `.env`:
+
+```env
+# AMAPI Configuration
+ANDROID_MANAGEMENT_ENABLED=true
+ANDROID_MANAGEMENT_ENTERPRISE_ID=enterprises/LC...
+ANDROID_MANAGEMENT_DEFAULT_POLICY_ID=policy_emi_default
+ANDROID_MANAGEMENT_SERVICE_ACCOUNT_PATH=./config/service-account.json
+AMAPI_WEBHOOK_SECRET=your_secret
+
+# APK Configuration
+APP_DOWNLOAD_URL=https://your-hosting-url/app-release.apk
+APP_SIGNATURE_CHECKSUM=your_sha256_without_colons
+APP_PACKAGE_NAME=com.androidmanager
+```
+
+---
+
+## 📊 **Key Metrics**
+
+- **Min SDK:** 29 (Android 10)
+- **Target SDK:** 36
+- **APK Size:** ~3.5 MB
+- **Location Update Frequency:** 15 min or 50m movement
+- **FCM Response Time:** < 2 seconds
+
+---
+
+## ⚠️ **Important Notes**
+
+- **Device Owner mode** grants significant system-level control
+- Only deploy to devices you **own/manage**
+- Ensure compliance with **local privacy laws**
+- **Never commit** `google-services.json` or `*.jks` files to Git
+- **QR provisioning** requires publicly accessible APK URL
+
+---
+
+**Built with for enterprise device management**
