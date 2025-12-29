@@ -41,6 +41,9 @@ class MainActivity : ComponentActivity() {
         preferencesManager = PreferencesManager(this)
         policyHelper = DevicePolicyManagerHelper(this)
 
+        // Check if this is AMAPI provisioning and extract data
+        checkAndExtractAmapiProvisioning()
+
         lifecycleScope.launch {
             val isSetupComplete = preferencesManager.isSetupComplete.first()
             val isLocked = preferencesManager.isDeviceLockedSync()
@@ -66,6 +69,55 @@ class MainActivity : ComponentActivity() {
                     // Close app - customer shouldn't see anything
                     finish()
                 }
+            }
+        }
+    }
+
+    /**
+     * Check if activity was launched after AMAPI provisioning
+     * and extract enrollment data from intent extras
+     */
+    private fun checkAndExtractAmapiProvisioning() {
+        val action = intent.action
+        android.util.Log.d("MainActivity", "Launched with action: $action")
+        
+        if (action == "android.app.action.PROVISIONING_SUCCESSFUL" ||
+            action == "android.app.action.ADMIN_POLICY_COMPLIANCE") {
+            
+            android.util.Log.d("MainActivity", "✅ AMAPI provisioning detected!")
+            
+            // Extract the admin extras bundle
+            val adminExtras = intent.getBundleExtra("android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE")
+            
+            if (adminExtras != null) {
+                lifecycleScope.launch {
+                    try {
+                        // Extract AMAPI data
+                        val backendUrl = adminExtras.getString("backend_url")
+                        val enrollmentToken = adminExtras.getString("enrollment_token")
+                        val customerId = adminExtras.getString("customer_id")
+                        val enterpriseId = adminExtras.getString("enterprise_id")
+                        
+                        android.util.Log.d("MainActivity", "AMAPI Provisioning Data:")
+                        android.util.Log.d("MainActivity", "  Backend URL: $backendUrl")
+                        android.util.Log.d("MainActivity", "  Customer ID: $customerId")
+                        android.util.Log.d("MainActivity", "  Enterprise ID: $enterpriseId")
+                        android.util.Log.d("MainActivity", "  Enrollment Token: ${enrollmentToken?.take(20)}...")
+                        
+                        // Store in preferences
+                        backendUrl?.let { preferencesManager.setBackendUrl(it) }
+                        customerId?.let { preferencesManager.setCustomerId(it) }
+                        enrollmentToken?.let { preferencesManager.setEnrollmentToken(it) }
+                        enterpriseId?.let { preferencesManager.setEnterpriseId(it) }
+                        preferencesManager.setAmapiProvisioned(true)
+                        
+                        android.util.Log.d("MainActivity", "✅ AMAPI data stored successfully")
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "Error extracting AMAPI data", e)
+                    }
+                }
+            } else {
+                android.util.Log.w("MainActivity", "⚠️ No admin extras bundle found in provisioning intent")
             }
         }
     }

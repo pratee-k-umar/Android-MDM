@@ -11,7 +11,7 @@ import android.os.Build
 import android.os.UserManager
 import android.provider.Settings
 import android.util.Log
-import com.androidmanager.receiver.EMIDeviceAdminReceiver
+import com.androidmanager.receiver.DeviceAdminReceiver
 
 /**
  * Helper class to manage Device Policy operations
@@ -28,7 +28,7 @@ class DevicePolicyManagerHelper(private val context: Context) {
     }
 
     private val adminComponent: ComponentName by lazy {
-        EMIDeviceAdminReceiver.getComponentName(context)
+        DeviceAdminReceiver.getComponentName(context)
     }
 
     private val accountManager: AccountManager by lazy {

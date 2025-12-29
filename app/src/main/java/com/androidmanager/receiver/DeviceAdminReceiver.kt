@@ -13,19 +13,25 @@ import com.androidmanager.service.DeviceMonitorService
  * Device Admin Receiver - Handles device owner events and policy management
  * This is the core component that enables MDM capabilities
  */
-class EMIDeviceAdminReceiver : DeviceAdminReceiver() {
+class DeviceAdminReceiver : DeviceAdminReceiver() {
 
     companion object {
         private const val TAG = "EMIDeviceAdmin"
 
         fun getComponentName(context: Context): ComponentName {
-            return ComponentName(context.applicationContext, EMIDeviceAdminReceiver::class.java)
+            return ComponentName(context.applicationContext, DeviceAdminReceiver::class.java)
         }
     }
 
     override fun onEnabled(context: Context, intent: Intent) {
         super.onEnabled(context, intent)
-        Log.d(TAG, "Device Admin Enabled")
+        Log.d(TAG, "✅ Device Admin Enabled - AMAPI DPC Mode")
+        
+        // Check if this is AMAPI provisioning
+        val adminExtras = intent.getBundleExtra("android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE")
+        if (adminExtras != null) {
+            Log.d(TAG, "📦 AMAPI provisioning detected in onEnabled")
+        }
         
         // Suppress device owner notifications immediately
         try {
@@ -37,10 +43,10 @@ class EMIDeviceAdminReceiver : DeviceAdminReceiver() {
                 dpm.setDeviceOwnerLockScreenInfo(adminComponent, null)
                 dpm.setShortSupportMessage(adminComponent, null)
                 dpm.setLongSupportMessage(adminComponent, null)
-                Log.d(TAG, "Device owner notifications suppressed")
+                Log.d(TAG, "✅ Device owner notifications suppressed")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not suppress notifications: ${e.message}")
+            Log.w(TAG, "⚠️ Could not suppress notifications: ${e.message}")
         }
         
         
@@ -79,11 +85,48 @@ class EMIDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
         super.onProfileProvisioningComplete(context, intent)
-        Log.d(TAG, "Profile Provisioning Complete")
+        Log.d(TAG, "✅ Profile Provisioning Complete - AMAPI DPC Mode")
+        
+        // Extract and log AMAPI admin extras
+        val adminExtras = intent.getBundleExtra("android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE")
+        if (adminExtras != null) {
+            Log.d(TAG, "📦 AMAPI Admin Extras Bundle received:")
+            adminExtras.keySet().forEach { key ->
+                Log.d(TAG, "  - $key: ${adminExtras.get(key)}")
+            }
+        } else {
+            Log.w(TAG, "⚠️ No admin extras bundle found in provisioning intent")
+        }
+        
+        // Launch MainActivity with PROVISIONING_SUCCESSFUL action to trigger data extraction
+        try {
+            val mainActivityIntent = Intent(context, com.androidmanager.MainActivity::class.java).apply {
+                action = "android.app.action.PROVISIONING_SUCCESSFUL"
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                // Forward the admin extras to MainActivity
+                adminExtras?.let {
+                    putExtra("android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE", it)
+                }
+            }
+            context.startActivity(mainActivityIntent)
+            Log.d(TAG, "✅ Launched MainActivity with AMAPI provisioning data")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to launch MainActivity after provisioning", e)
+        }
         
         // Start the device monitor service
         val serviceIntent = Intent(context, DeviceMonitorService::class.java)
         context.startForegroundService(serviceIntent)
+        Log.d(TAG, "✅ DeviceMonitorService started")
+        
+        // Initialize and sync AMAPI policies
+        try {
+            val policyManager = com.androidmanager.manager.AmapiPolicyManager(context)
+            policyManager.initialize()
+            Log.d(TAG, "✅ AMAPI Policy Manager initialized - policies will be synced")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to initialize AMAPI policy manager", e)
+        }
     }
 
     override fun onLockTaskModeEntering(context: Context, intent: Intent, pkg: String) {
@@ -127,13 +170,13 @@ class EMIDeviceAdminReceiver : DeviceAdminReceiver() {
         super.onReceive(context, intent)
         
         when (intent.action) {
-            ACTION_DEVICE_ADMIN_ENABLED -> {
+            DeviceAdminReceiver.ACTION_DEVICE_ADMIN_ENABLED -> {
                 Log.d(TAG, "Admin enabled via broadcast")
             }
-            ACTION_DEVICE_ADMIN_DISABLED -> {
+            DeviceAdminReceiver.ACTION_DEVICE_ADMIN_DISABLED -> {
                 Log.d(TAG, "Admin disabled via broadcast")
             }
-            ACTION_DEVICE_ADMIN_DISABLE_REQUESTED -> {
+            DeviceAdminReceiver.ACTION_DEVICE_ADMIN_DISABLE_REQUESTED -> {
                 Log.d(TAG, "Admin disable requested")
                 // This can be blocked if we're device owner
             }
