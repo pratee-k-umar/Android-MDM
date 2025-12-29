@@ -59,6 +59,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- AMAPI Provisioning Intent Filters -->
+            <intent-filter>
+                <action android:name="android.app.action.PROVISIONING_SUCCESSFUL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.app.action.ADMIN_POLICY_COMPLIANCE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <!-- Setup Activity -->
@@ -81,9 +90,9 @@
             android:taskAffinity=""
             android:noHistory="false" />
 
-        <!-- Device Admin Receiver -->
+        <!-- Device Admin Receiver (AMAPI DPC) -->
         <receiver
-            android:name=".receiver.EMIDeviceAdminReceiver"
+            android:name=".receiver.DeviceAdminReceiver"
             android:exported="true"
             android:permission="android.permission.BIND_DEVICE_ADMIN">
             <meta-data

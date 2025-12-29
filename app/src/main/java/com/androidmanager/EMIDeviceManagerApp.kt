@@ -73,6 +73,15 @@ class EMIDeviceManagerApp : Application() {
             if (isAmapiProvisioned) {
                 Log.d(TAG, "  Customer ID: $customerId")
                 Log.d(TAG, "  Enterprise ID: $enterpriseId")
+                
+                // Initialize AMAPI policy manager
+                try {
+                    val policyManager = com.androidmanager.manager.AmapiPolicyManager(this@EMIDeviceManagerApp)
+                    policyManager.initialize()
+                    Log.d(TAG, "✅ AMAPI Policy Manager initialized")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Failed to initialize AMAPI policy manager", e)
+                }
             }
         }
     }

@@ -405,7 +405,7 @@ class SetupActivity : ComponentActivity() {
                              android.os.Build.PRODUCT.contains("sdk")
             
             if (isEmulator) {
-                imei = "123456789012345"
+                imei = "867400022047199"
                 Log.w(TAG, "Running on emulator - using test IMEI: $imei")
             } else {
                 Log.e(TAG, "Failed to get IMEI from real device")
@@ -566,29 +566,30 @@ class SetupActivity : ComponentActivity() {
             onStateChange(SetupState.REGISTERING, "Registering with server...")
 
             val serialNumber = policyHelper.getDeviceSerialNumber()
-            var imei = policyHelper.getDeviceIMEI()
+        var imei = policyHelper.getDeviceIMEI()
+        
+        // Handle IMEI permission issues gracefully
+        if (imei == null || imei == "000000000000000") {
+            // Check if running on emulator
+            val isEmulator = android.os.Build.FINGERPRINT.contains("generic") || 
+                             android.os.Build.MODEL.contains("Emulator") ||
+                             android.os.Build.PRODUCT.contains("sdk")
             
-            // Handle IMEI for emulator vs real device
-            if (imei == null || imei == "000000000000000") {
-                // Check if running on emulator
-                val isEmulator = android.os.Build.FINGERPRINT.contains("generic") || 
-                                 android.os.Build.MODEL.contains("Emulator") ||
-                                 android.os.Build.PRODUCT.contains("sdk")
-                
-                if (isEmulator) {
-                    // Use test IMEI for emulator
-                    imei = "123456789012345"
-                    Log.w(TAG, "Running on emulator - using test IMEI: $imei")
-                } else {
-                    // Real device without IMEI - error
-                    Log.e(TAG, "Failed to get IMEI from real device")
-                    throw Exception("IMEI required for device registration. Please ensure telephony permissions are granted.")
-                }
+            if (isEmulator) {
+                // Use test IMEI for emulator
+                imei = "867400022047199"
+                Log.w(TAG, "Running on emulator - using test IMEI: $imei")
+            } else {
+                // Real device without IMEI permission - use serial number as fallback
+                Log.w(TAG, "IMEI permission not granted - using serial number as fallback")
+                imei = serialNumber ?: android.os.Build.SERIAL ?: "UNKNOWN_${System.currentTimeMillis()}"
+                Log.d(TAG, "Fallback IMEI (Serial): $imei")
             }
-            
-            // Save IMEI to preferences
-            preferencesManager.setImei(imei)
-            Log.d(TAG, "IMEI: $imei")
+        }
+        
+        // Save IMEI to preferences
+        preferencesManager.setImei(imei)
+        Log.d(TAG, "IMEI: $imei")
 
             // Note: firstAccount is already handled in FRP section above
 

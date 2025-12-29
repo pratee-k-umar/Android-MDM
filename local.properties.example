@@ -1,0 +1,14 @@
+# Signing Configuration (copy to local.properties and fill in values)
+# DO NOT COMMIT local.properties TO GIT!
+
+# Keystore file path (relative to project root)
+KEYSTORE_FILE=../android-manager
+
+# Keystore password
+KEYSTORE_PASSWORD=your_keystore_password_here
+
+# Key alias
+KEY_ALIAS=key_alias
+
+# Key password
+KEY_PASSWORD=your_key_password_here
