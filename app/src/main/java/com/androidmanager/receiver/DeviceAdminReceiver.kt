@@ -19,7 +19,8 @@ class DeviceAdminReceiver : DeviceAdminReceiver() {
         private const val TAG = "EMIDeviceAdmin"
 
         fun getComponentName(context: Context): ComponentName {
-            return ComponentName(context.applicationContext, DeviceAdminReceiver::class.java)
+            // Use fully qualified class name to avoid confusion with base class import
+            return ComponentName(context.applicationContext, com.androidmanager.receiver.DeviceAdminReceiver::class.java)
         }
     }
 

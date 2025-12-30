@@ -194,7 +194,14 @@ class DeviceMonitorService : LifecycleService() {
     private fun shouldSendLocationUpdate(newLocation: Location): Boolean {
         val now = System.currentTimeMillis()
         
-        // Check time threshold - don't spam backend with updates
+        // FORCE update every 15 minutes regardless of movement (for physical devices)
+        val forcedUpdateIntervalMs = 15 * 60 * 1000L // 15 minutes
+        if (now - lastLocationUpdateTime >= forcedUpdateIntervalMs) {
+            Log.d(TAG, "Forcing location update (15+ min since last update)")
+            return true
+        }
+        
+        // Check time threshold - don't spam backend with updates (min 2 min between updates)
         if (now - lastLocationUpdateTime < MIN_TIME_BETWEEN_UPDATES_MS) {
             Log.d(TAG, "Skipping: Too soon since last update (${(now - lastLocationUpdateTime) / 1000}s ago)")
             return false

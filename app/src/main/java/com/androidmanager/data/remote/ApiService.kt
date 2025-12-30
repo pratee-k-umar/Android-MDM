@@ -106,4 +106,12 @@ interface ApiService {
     suspend fun sendDeviceActivity(
         @Body request: DeviceActivityRequest
     ): Response<DeviceActivityResponse>
+
+    /**
+     * Get retailer shop for a customer device
+     */
+    @GET("api/customer/device/retailer-shop/{imei1}")
+    suspend fun getRetailerShop(
+        @Path("imei1") imei: String
+    ): Response<RetailerShopResponse>
 }

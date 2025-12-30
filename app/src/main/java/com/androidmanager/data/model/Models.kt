@@ -261,3 +261,20 @@ data class DeviceActivityData(
     val isOnline: Boolean
 )
 
+/**
+ * Retailer Shop response
+ */
+@Serializable
+data class RetailerShopResponse(
+    val success: Boolean,
+    val message: String,
+    val data: RetailerShopData?
+)
+
+@Serializable
+data class RetailerShopData(
+    val shopName: String,
+    val shopAddress: String? = null,
+    val shopPhone: String? = null,
+    val shopEmail: String? = null
+)

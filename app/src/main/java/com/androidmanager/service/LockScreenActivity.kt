@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.androidmanager.data.local.PreferencesManager
+import com.androidmanager.data.repository.DeviceRepository
 import com.androidmanager.manager.DevicePolicyManagerHelper
 import com.androidmanager.ui.theme.AndroidManagerTheme
 import kotlinx.coroutines.flow.first
@@ -101,11 +103,29 @@ class LockScreenActivity : ComponentActivity() {
     private fun LockScreen() {
         var lockMessage by remember { mutableStateOf("") }
         var shopName by remember { mutableStateOf("") }
+        var shopPhone by remember { mutableStateOf("") }
 
         LaunchedEffect(Unit) {
             lockMessage = preferencesManager.getLockMessage() 
                 ?: "Payment overdue. Please contact the shop owner to unlock your device."
-            shopName = preferencesManager.shopId.first() ?: ""
+            
+            // Fetch shop name from API
+            try {
+                val deviceRepository = DeviceRepository(preferencesManager)
+                val result = deviceRepository.getRetailerShop()
+                result.onSuccess { response ->
+                    shopName = response.data?.shopName ?: ""
+                    shopPhone = response.data?.shopPhone ?: ""
+                    Log.d("LockScreenActivity", "Shop info fetched: $shopName, $shopPhone")
+                }.onFailure { error ->
+                    Log.e("LockScreenActivity", "Failed to fetch shop info: ${error.message}")
+                    // Fallback to saved shop ID
+                    shopName = preferencesManager.shopId.first() ?: ""
+                }
+            } catch (e: Exception) {
+                Log.e("LockScreenActivity", "Error fetching shop info", e)
+                shopName = preferencesManager.shopId.first() ?: ""
+            }
         }
 
         Box(
@@ -170,6 +190,13 @@ class LockScreenActivity : ComponentActivity() {
                         color = Color.Gray,
                         fontSize = 12.sp
                     )
+                    if (shopPhone.isNotEmpty()) {
+                        Text(
+                            text = "Contact: $shopPhone",
+                            color = Color.Gray,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(48.dp))

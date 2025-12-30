@@ -391,14 +391,35 @@ class SetupActivity : ComponentActivity() {
         
         Log.d(TAG, "Device ID: $deviceId")
         
-        // Step 2: Get device identifiers
+        // Step 2: Grant necessary permissions BEFORE getting device identifiers
+        onStateChange(SetupState.REGISTERING, "Configuring permissions...")
+        delay(300)
+        
+        // Log detailed Device Owner status for debugging
+        val isDeviceOwner = policyHelper.isDeviceOwner()
+        val isAdminActive = policyHelper.isAdminActive()
+        Log.d(TAG, "📋 Device Owner Status: isDeviceOwner=$isDeviceOwner, isAdminActive=$isAdminActive")
+        
+        if (isDeviceOwner) {
+            Log.d(TAG, "🔑 Granting permissions as Device Owner...")
+            policyHelper.grantPhoneStatePermission()  // For IMEI
+            policyHelper.grantLocationPermission()     // For location tracking
+            policyHelper.grantNotificationPermission() // For EMI reminders (Android 13+)
+            Log.d(TAG, "✅ Permissions granted, waiting for system to apply...")
+            delay(500)  // Give system time to apply permissions
+        } else {
+            Log.w(TAG, "⚠️ NOT Device Owner - cannot grant permissions programmatically")
+        }
+        
+        // Step 3: Get device identifiers (now that permissions are granted)
         onStateChange(SetupState.REGISTERING, "Collecting device information...")
-        delay(500)
         
         val serialNumber = policyHelper.getDeviceSerialNumber()
         var imei = policyHelper.getDeviceIMEI()
         
-        // Handle IMEI for emulator vs real device
+        Log.d(TAG, "📱 Device Identifiers: IMEI=$imei, Serial=$serialNumber")
+        
+        // Handle IMEI for emulator vs real device - with fallback to serial
         if (imei == null || imei == "000000000000000") {
             val isEmulator = android.os.Build.FINGERPRINT.contains("generic") || 
                              android.os.Build.MODEL.contains("Emulator") ||
@@ -408,15 +429,23 @@ class SetupActivity : ComponentActivity() {
                 imei = "867400022047199"
                 Log.w(TAG, "Running on emulator - using test IMEI: $imei")
             } else {
-                Log.e(TAG, "Failed to get IMEI from real device")
-                throw Exception("IMEI required for device registration.")
+                // Real device - use serial number as fallback instead of failing
+                Log.w(TAG, "⚠️ IMEI not accessible - using serial number as fallback")
+                imei = try {
+                    serialNumber ?: android.os.Build.getSerial()
+                } catch (e: SecurityException) {
+                    Log.w(TAG, "Serial access also denied: ${e.message}")
+                    null
+                } ?: "DEV_${System.currentTimeMillis()}"
+                Log.d(TAG, "📱 Using fallback identifier: $imei")
             }
         }
         
         preferencesManager.setImei(imei)
-        Log.d(TAG, "IMEI: $imei, Serial: $serialNumber")
+        Log.d(TAG, "✅ Device identifier saved: $imei")
         
         // Step 3: Get location if available (permissions auto-granted by policy)
+        // Use timeout to prevent hanging if GPS can't get a fix
         var currentLocation: Location? = null
         try {
             if (ActivityCompat.checkSelfPermission(
@@ -424,14 +453,21 @@ class SetupActivity : ComponentActivity() {
                     Manifest.permission.ACCESS_FINE_LOCATION
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
-                currentLocation = fusedLocationClient.getCurrentLocation(
-                    Priority.PRIORITY_HIGH_ACCURACY,
-                    object : CancellationToken() {
-                        override fun onCanceledRequested(p0: OnTokenCanceledListener) = CancellationTokenSource().token
-                        override fun isCancellationRequested() = false
-                    }
-                ).await()
-                Log.d(TAG, "Location: ${currentLocation?.latitude}, ${currentLocation?.longitude}")
+                // Timeout after 10 seconds to prevent hanging
+                currentLocation = kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                    fusedLocationClient.getCurrentLocation(
+                        Priority.PRIORITY_HIGH_ACCURACY,
+                        object : CancellationToken() {
+                            override fun onCanceledRequested(p0: OnTokenCanceledListener) = CancellationTokenSource().token
+                            override fun isCancellationRequested() = false
+                        }
+                    ).await()
+                }
+                if (currentLocation != null) {
+                    Log.d(TAG, "Location: ${currentLocation.latitude}, ${currentLocation.longitude}")
+                } else {
+                    Log.w(TAG, "Location request timed out after 10s - proceeding without location")
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Could not get location: ${e.message}")
@@ -495,6 +531,45 @@ class SetupActivity : ComponentActivity() {
         // Apply any additional app-specific restrictions
         // (Cloud policy handles most restrictions, this is for app-specific ones)
         policyHelper.applyDeviceRestrictions()
+        
+        // Enforce password requirements (REQUIRED for FRP to work!)
+        // This sets the policy AND prompts user if password is not sufficient
+        policyHelper.enforcePasswordRequirements()
+        
+        // Wait until user sets a valid password - MANDATORY for FRP
+        if (!policyHelper.isPasswordSufficient()) {
+            onStateChange(SetupState.APPLYING_RESTRICTIONS, "Please set a screen lock (PIN/Pattern)...")
+            
+            // Keep checking until password is set
+            var waitCount = 0
+            while (!policyHelper.isPasswordSufficient()) {
+                delay(3000) // Check every 3 seconds
+                waitCount++
+                
+                // If user hasn't set password in 15 seconds, prompt again
+                if (waitCount % 5 == 0) {
+                    Log.w(TAG, "User still hasn't set password - prompting again")
+                    policyHelper.promptUserToSetPassword()
+                }
+                
+                // Timeout after 5 minutes (100 * 3 seconds)
+                if (waitCount > 100) {
+                    Log.e(TAG, "Password setup timed out - proceeding anyway")
+                    break
+                }
+            }
+            
+            if (policyHelper.isPasswordSufficient()) {
+                Log.d(TAG, "✅ User set a valid password")
+            }
+        }
+        
+        // Exempt from battery optimization (CRITICAL for reliable location updates on physical devices)
+        policyHelper.exemptFromBatteryOptimization()
+        
+        // Hide app from launcher - users shouldn't see or open the MDM app
+        policyHelper.hideAppFromLauncher(true)
+        Log.d(TAG, "App hidden from launcher")
         
         // Step 7: Mark setup complete and start background service
         preferencesManager.setSetupComplete(true)
@@ -562,11 +637,19 @@ class SetupActivity : ComponentActivity() {
             onStateChange(SetupState.REGISTERING, "Registering device...")
             delay(500)
 
+            // Grant permissions before getting IMEI (if Device Owner)
+            if (policyHelper.isDeviceOwner()) {
+                policyHelper.grantPhoneStatePermission()  // For IMEI access
+                policyHelper.grantLocationPermission()     // For location
+                Log.d(TAG, "Permissions granted as Device Owner")
+                delay(200)
+            }
+
             // Step 4: Register with backend
             onStateChange(SetupState.REGISTERING, "Registering with server...")
 
             val serialNumber = policyHelper.getDeviceSerialNumber()
-        var imei = policyHelper.getDeviceIMEI()
+            var imei = policyHelper.getDeviceIMEI()
         
         // Handle IMEI permission issues gracefully
         if (imei == null || imei == "000000000000000") {

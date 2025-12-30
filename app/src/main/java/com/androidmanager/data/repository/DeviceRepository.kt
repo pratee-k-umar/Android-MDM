@@ -421,4 +421,29 @@ class DeviceRepository(
             Result.failure(e)
         }
     }
+
+    /**
+     * Get retailer shop information for the device
+     */
+    suspend fun getRetailerShop(): Result<RetailerShopResponse> = withContext(Dispatchers.IO) {
+        try {
+            val imei = preferencesManager.getImei() ?: return@withContext Result.failure(
+                Exception("IMEI not found")
+            )
+
+            val response = apiService.getRetailerShop(imei)
+
+            if (response.isSuccessful && response.body() != null) {
+                val body = response.body()!!
+                Log.d(TAG, "Retailer shop fetched: ${body.data?.shopName}")
+                Result.success(body)
+            } else {
+                Log.e(TAG, "Get retailer shop failed: ${response.code()}")
+                Result.failure(Exception("Get retailer shop failed: ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting retailer shop", e)
+            Result.failure(e)
+        }
+    }
 }

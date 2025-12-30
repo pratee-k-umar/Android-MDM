@@ -193,10 +193,18 @@ class PreferencesManager(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[KEY_IMEI] = imei
         }
+        // Also save to SharedPreferences for sync access
+        val sharedPrefs = context.getSharedPreferences("emi_device_manager_boot", Context.MODE_PRIVATE)
+        sharedPrefs.edit().putString("imei", imei).apply()
     }
 
     suspend fun getImei(): String? {
         return context.dataStore.data.first()[KEY_IMEI]
+    }
+
+    fun getImeiSync(): String? {
+        val sharedPrefs = context.getSharedPreferences("emi_device_manager_boot", Context.MODE_PRIVATE)
+        return sharedPrefs.getString("imei", null)
     }
 
     val imei: Flow<String?> = context.dataStore.data.map { prefs ->

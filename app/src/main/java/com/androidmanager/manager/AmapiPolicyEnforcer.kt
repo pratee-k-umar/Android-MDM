@@ -1,6 +1,5 @@
 package com.androidmanager.manager
 
-import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
@@ -12,6 +11,7 @@ import com.androidmanager.data.model.NonComplianceDetail
 import com.androidmanager.data.model.PasswordPolicy
 import com.androidmanager.data.model.PasswordRequirements
 import com.androidmanager.data.model.AdvancedSecurityOverrides
+import com.androidmanager.receiver.DeviceAdminReceiver
 
 /**
  * AMAPI Policy Enforcer
@@ -25,7 +25,7 @@ class AmapiPolicyEnforcer(private val context: Context) {
     }
     
     private val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-    private val adminComponent = ComponentName(context, DeviceAdminReceiver::class.java)
+    private val adminComponent = DeviceAdminReceiver.getComponentName(context)
     private val policyHelper = DevicePolicyManagerHelper(context)
     
     private val nonComplianceList = mutableListOf<NonComplianceDetail>()

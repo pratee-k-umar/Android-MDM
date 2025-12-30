@@ -11,6 +11,7 @@ import com.androidmanager.data.local.PreferencesManager
 import com.androidmanager.data.remote.NetworkModule
 import com.androidmanager.data.repository.DeviceRepository
 import com.androidmanager.manager.DevicePolicyManagerHelper
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +53,9 @@ class EMIDeviceManagerApp : Application() {
 
         // Initialize policy helper
         policyHelper = DevicePolicyManagerHelper(this)
+
+        // Initialize Crashlytics for crash reporting
+        initializeCrashlytics()
 
         // Initialize network if backend URL is configured
         initializeNetwork()
@@ -100,6 +104,40 @@ class EMIDeviceManagerApp : Application() {
             val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager.createNotificationChannel(channel)
             Log.d(TAG, "Notification channel created: $NOTIFICATION_CHANNEL_ID")
+        }
+    }
+
+    /**
+     * Initialize Firebase Crashlytics for crash reporting
+     * Sets custom keys for device identification in crash reports
+     */
+    private fun initializeCrashlytics() {
+        try {
+            val crashlytics = FirebaseCrashlytics.getInstance()
+            
+            // Enable crash collection
+            crashlytics.setCrashlyticsCollectionEnabled(true)
+            
+            // Set custom keys for device identification
+            crashlytics.setCustomKey("device_model", Build.MODEL)
+            crashlytics.setCustomKey("device_brand", Build.MANUFACTURER)
+            crashlytics.setCustomKey("android_version", Build.VERSION.RELEASE)
+            crashlytics.setCustomKey("sdk_int", Build.VERSION.SDK_INT)
+            crashlytics.setCustomKey("is_device_owner", policyHelper.isDeviceOwner())
+            
+            // Set IMEI if available (use sync version for non-coroutine context)
+            val imei = preferencesManager.getImeiSync()
+            if (imei != null) {
+                crashlytics.setUserId(imei)
+                crashlytics.setCustomKey("imei", imei)
+            }
+            
+            // Log that Crashlytics is initialized
+            crashlytics.log("App started - Crashlytics initialized")
+            Log.d(TAG, "✅ Crashlytics initialized")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing Crashlytics", e)
         }
     }
 
