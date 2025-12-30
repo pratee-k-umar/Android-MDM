@@ -1,35 +1,35 @@
 # Android Manager - Enterprise Device Management
 
-Enterprise Android app with **AMAPI DPC (Device Policy Controller)** for zero-touch provisioning, policy enforcement, and remote device control.
+Enterprise Android app with **AMAPI DPC (Device Policy Controller)** for qr code provisioning, policy enforcement, and remote device control.
 
 ---
 
-## 🎯 **Key Features**
+## **Key Features**
 
 ### AMAPI DPC Integration
-- ✅ **QR Code Provisioning** - Zero-touch device enrollment
-- ✅ **Policy Enforcement** - Passwords, factory reset, developer settings
-- ✅ **Compliance Reporting** - Reports status back to Google AMAPI
-- ✅ **Custom DPC** - Directly enforces policies (not Google's DPC)
+- **QR Code Provisioning** - Zero-touch device enrollment
+- **Policy Enforcement** - Passwords, factory reset, developer settings
+- **Compliance Reporting** - Reports status back to Google AMAPI
+- **Custom DPC** - Directly enforces policies (not Google's DPC)
 
 ### Device Management
-- ✅ **Remote Lock/Unlock** - Via Firebase Cloud Messaging
-- ✅ **Real-time Location Tracking** - Smart throttling (15 min/50 meters)
-- ✅ **Factory Reset Protection (FRP)** - Google account binding
-- ✅ **Device Owner Mode** - Full administrative control
-- ✅ **Mandatory Screen Lock** - Forces PIN/Pattern/Password
-- ✅ **App Hidden from Launcher** - Invisible to end users
-- ✅ **Crashlytics Integration** - Remote crash reporting
+- **Remote Lock/Unlock** - Via Firebase Cloud Messaging
+- **Real-time Location Tracking** - Smart throttling (15 min/50 meters)
+- **Factory Reset Protection (FRP)** - Google account binding
+- **Device Owner Mode** - Full administrative control
+- **Mandatory Screen Lock** - Forces PIN/Pattern/Password
+- **App Hidden from Launcher** - Invisible to end users
+- **Crashlytics Integration** - Remote crash reporting
 
 ### Backend Integration
-- ✅ **Automated Registration** - Auto-registers on first boot
-- ✅ **FCM Push Notifications** - Real-time lock/unlock commands
-- ✅ **Location Reporting** - Periodic updates with online status
-- ✅ **Lock Screen Shop Info** - Fetches shop name/phone from API
+- **Automated Registration** - Auto-registers on first boot
+- **FCM Push Notifications** - Real-time lock/unlock commands
+- **Location Reporting** - Periodic updates with online status
+- **Lock Screen Shop Info** - Fetches shop name/phone from API
 
 ---
 
-## 🏗️ **Tech Stack**
+## **Tech Stack**
 
 | Component | Technology |
 |-----------|------------|
@@ -44,22 +44,22 @@ Enterprise Android app with **AMAPI DPC (Device Policy Controller)** for zero-to
 
 ---
 
-## 📱 **AMAPI DPC Provisioning**
+## **AMAPI DPC Provisioning**
 
 ### QR Code Format
 
 ```json
 {
   "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": "com.androidmanager/.receiver.DeviceAdminReceiver",
-  "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": "https://github.com/pratee-k-umar/Android-MDM/releases/download/v1.0.0/app-release.apk",
-  "android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM": "YeMTxf75z1Deyf3mhZd6OnPPX-SSafTaTfR8S-RNKWc",
+  "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": "https://github.com/your-username/your-repo/releases/download/v1.0.0/app-release.apk",
+  "android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM": "YOUR_APK_SIGNATURE_CHECKSUM",
   "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": false,
   "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true,
   "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
     "backend_url": "https://your-backend.com/api",
-    "enrollment_token": "YOUR_AMAPI_TOKEN",
-    "customer_id": "CUSTOMER_ID",
-    "enterprise_id": "enterprises/LC04j9pb5k"
+    "enrollment_token": "YOUR_ENROLLMENT_TOKEN",
+    "customer_id": "YOUR_CUSTOMER_ID",
+    "enterprise_id": "enterprises/YOUR_ENTERPRISE_ID"
   }
 }
 ```
@@ -73,11 +73,11 @@ Enterprise Android app with **AMAPI DPC (Device Policy Controller)** for zero-to
 5. **App becomes Device Owner** automatically
 6. **Policies enforced** (password, factory reset disabled, etc.)
 7. **Device registered** with backend
-8. **Ready for remote management** ✅
+8. **Ready for remote management**
 
 ---
 
-## 🔐 **Supported AMAPI Policies**
+## **Supported AMAPI Policies**
 
 | Policy | Enforcement |
 |--------|-------------|
@@ -93,12 +93,12 @@ Enterprise Android app with **AMAPI DPC (Device Policy Controller)** for zero-to
 
 ---
 
-## 🚀 **Quick Start**
+## **Quick Start**
 
 ### 1. Clone & Setup
 
 ```bash
-git clone https://github.com/pratee-k-umar/Android-MDM.git
+git clone https://github.com/your-username/your-repo.git
 cd AndroidManager
 
 # Add google-services.json to app/
@@ -128,15 +128,13 @@ object Constants {
 sha256sum app/build/outputs/apk/release/app-release.apk | xxd -r -p | base64 | tr '+/' '-_' | tr -d '='
 ```
 
-**Current checksum:** `YeMTxf75z1Deyf3mhZd6OnPPX-SSafTaTfR8S-RNKWc`
-
 ### 5. Upload to GitHub Releases
 
 Create a release and upload `app-release.apk`
 
 ---
 
-## 📂 **Project Structure**
+## **Project Structure**
 
 ```
 app/
@@ -163,7 +161,7 @@ app/
 
 ---
 
-## 📡 **FCM Commands**
+## **FCM Commands**
 
 ### Lock Device
 ```json
@@ -183,7 +181,7 @@ app/
 
 ---
 
-## 🔧 **Backend Requirements**
+## **Backend Requirements**
 
 Update these in your backend:
 
@@ -191,32 +189,31 @@ Update these in your backend:
 |---------|-------|
 | Component Name | `com.androidmanager/.receiver.DeviceAdminReceiver` |
 | APK URL | Your GitHub releases URL |
-| Signature Checksum | `YeMTxf75z1Deyf3mhZd6OnPPX-SSafTaTfR8S-RNKWc` |
 | Package Name | `com.androidmanager` |
 
 ---
 
-## 🐛 **Troubleshooting**
+## **Troubleshooting**
 
 ### Provisioning Failed
-- ✅ APK URL is HTTPS and accessible
-- ✅ Signature checksum matches release APK
-- ✅ Component name is exactly `com.androidmanager/.receiver.DeviceAdminReceiver`
-- ✅ Device has internet during setup
+- APK URL is HTTPS and accessible
+- Signature checksum matches release APK
+- Component name is exactly `com.androidmanager/.receiver.DeviceAdminReceiver`
+- Device has internet during setup
 
 ### Policy Not Enforcing
-- ✅ AMAPI enrollment token is valid
-- ✅ Enterprise ID format: `enterprises/LC########`
-- ✅ Check logs: `adb logcat | grep -E "(AMAPI|PolicyEnforcer)"`
+- AMAPI enrollment token is valid
+- Enterprise ID format: `enterprises/########`
+- Check logs: `adb logcat | grep -E "(AMAPI|PolicyEnforcer)"`
 
 ### FCM Not Working
-- ✅ Firebase billing enabled
-- ✅ `google-services.json` present in `app/`
-- ✅ Device registered with backend
+- Firebase billing enabled
+- `google-services.json` present in `app/`
+- Device registered with backend
 
 ---
 
-## 📊 **Metrics & Compatibility**
+## **Metrics & Compatibility**
 
 | Metric | Value |
 |--------|-------|
@@ -230,14 +227,14 @@ Update these in your backend:
 
 | Feature | Android 10 | Android 11+ |
 |---------|------------|-------------|
-| setLocationEnabled() | ❌ Skipped | ✅ |
-| setRequiredPasswordComplexity() | ⚠️ ROM dependent | ✅ |
-| Password enforcement | ✅ Legacy API | ✅ Modern API |
-| Location tracking | ✅ | ✅ |
+| setLocationEnabled() | Skipped | Supported |
+| setRequiredPasswordComplexity() | ROM dependent | Supported |
+| Password enforcement | Legacy API | Modern API |
+| Location tracking | Supported | Supported |
 
 ---
 
-## 📖 **Documentation**
+## **Documentation**
 
 - [BACKEND_INTEGRATION_GUIDE.md](BACKEND_INTEGRATION_GUIDE.md) - QR code generation
 - [BUILD_RELEASE_GUIDE.md](BUILD_RELEASE_GUIDE.md) - APK build & hosting
@@ -245,7 +242,7 @@ Update these in your backend:
 
 ---
 
-## ⚠️ **Important**
+## **Important**
 
 - Only deploy to devices you **own/manage**
 - Ensure compliance with **local privacy laws**
@@ -254,4 +251,4 @@ Update these in your backend:
 
 ---
 
-**Built for enterprise device management** 🚀
+**Built for enterprise device management**
