@@ -90,6 +90,9 @@ class AmapiPolicyEnforcer(private val context: Context) {
             // Advanced security overrides (developer settings, etc.)
             policy.advancedSecurityOverrides?.let { enforceAdvancedSecurityOverrides(it) }
             
+            // Factory Reset Protection (FRP) - Uses frpAdminEmails from policy
+            policy.frpAdminEmails?.let { enforceFrpPolicy(it) }
+            
             Log.d(TAG, "✅ Policy application complete. Non-compliance count: ${nonComplianceList.size}")
             
         } catch (e: Exception) {
@@ -588,6 +591,33 @@ class AmapiPolicyEnforcer(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to set advanced security overrides", e)
             addNonCompliance("advancedSecurityOverrides", "API_LEVEL", e.message)
+        }
+    }
+    
+    /**
+     * Enforce Factory Reset Protection
+     * Sets the accounts that can unlock the device after factory reset
+     */
+    private fun enforceFrpPolicy(adminEmails: List<String>) {
+        try {
+            if (adminEmails.isEmpty()) {
+                Log.w(TAG, "No FRP admin emails provided")
+                return
+            }
+            
+            // Use DevicePolicyManagerHelper to set FRP
+            policyHelper.setupFactoryResetProtection(adminEmails)
+            
+            // Verify FRP is enabled
+            if (policyHelper.isFactoryResetProtectionEnabled()) {
+                Log.d(TAG, "✅ FRP enabled with ${adminEmails.size} admin email(s): ${adminEmails.joinToString()}")
+            } else {
+                Log.w(TAG, "⚠️ FRP may not be enabled (Android 11+ required)")
+                addNonCompliance("frpAdminEmails", "API_LEVEL", "FRP requires Android 11+")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to set FRP policy", e)
+            addNonCompliance("frpAdminEmails", "API_LEVEL", e.message)
         }
     }
     

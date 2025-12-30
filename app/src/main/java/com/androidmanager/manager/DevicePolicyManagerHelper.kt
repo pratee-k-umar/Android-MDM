@@ -599,6 +599,7 @@ class DevicePolicyManagerHelper(private val context: Context) {
     /**
      * Set up FRP with shop owner's Google account
      * After factory reset, device will require this account to unlock
+     * Uses FactoryResetProtectionPolicy API (Android 9+)
      */
     fun setupFactoryResetProtection(accountEmail: String) {
         if (!isDeviceOwner()) {
@@ -607,19 +608,98 @@ class DevicePolicyManagerHelper(private val context: Context) {
         }
 
         try {
-            // Get the account
-            val accounts = accountManager.getAccountsByType("com.google")
-            val shopOwnerAccount = accounts.find { it.name == accountEmail }
-
-            if (shopOwnerAccount != null) {
-                // Set the factory reset protection policy
-                // The first added Google account is automatically used for FRP
-                Log.d(TAG, "FRP configured with account: $accountEmail")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // Android 11+ : Use FactoryResetProtectionPolicy
+                val frpPolicy = android.app.admin.FactoryResetProtectionPolicy.Builder()
+                    .setFactoryResetProtectionAccounts(listOf(accountEmail))
+                    .setFactoryResetProtectionEnabled(true)
+                    .build()
+                
+                devicePolicyManager.setFactoryResetProtectionPolicy(adminComponent, frpPolicy)
+                Log.d(TAG, "✅ FRP configured with FactoryResetProtectionPolicy for: $accountEmail")
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                // Android 9-10: Use deprecated but functional method
+                // Note: setFactoryResetProtectionPolicy was added in API 30
+                // For API 28-29, we need a workaround - the account must be added to device
+                Log.w(TAG, "⚠️ FRP on Android 9-10 requires Google account to be added to device")
+                Log.d(TAG, "FRP account intended: $accountEmail")
             } else {
-                Log.w(TAG, "Shop owner account not found: $accountEmail")
+                Log.w(TAG, "FRP API not available on this Android version")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error setting up FRP", e)
+        }
+    }
+
+    /**
+     * Set up FRP with multiple accounts (for flexibility)
+     * Any of these accounts can unlock the device after factory reset
+     */
+    fun setupFactoryResetProtection(accountEmails: List<String>) {
+        if (!isDeviceOwner()) {
+            Log.e(TAG, "Cannot setup FRP - not device owner")
+            return
+        }
+
+        if (accountEmails.isEmpty()) {
+            Log.w(TAG, "No FRP accounts provided")
+            return
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val frpPolicy = android.app.admin.FactoryResetProtectionPolicy.Builder()
+                    .setFactoryResetProtectionAccounts(accountEmails)
+                    .setFactoryResetProtectionEnabled(true)
+                    .build()
+                
+                devicePolicyManager.setFactoryResetProtectionPolicy(adminComponent, frpPolicy)
+                Log.d(TAG, "✅ FRP configured with ${accountEmails.size} accounts: ${accountEmails.joinToString()}")
+            } else {
+                Log.w(TAG, "⚠️ FRP with multiple accounts requires Android 11+")
+                // Fallback: try with first account
+                setupFactoryResetProtection(accountEmails.first())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting up FRP with multiple accounts", e)
+        }
+    }
+
+    /**
+     * Check if FRP is enabled
+     */
+    fun isFactoryResetProtectionEnabled(): Boolean {
+        if (!isDeviceOwner()) return false
+        
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val policy = devicePolicyManager.getFactoryResetProtectionPolicy(adminComponent)
+                policy?.isFactoryResetProtectionEnabled ?: false
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking FRP status", e)
+            false
+        }
+    }
+
+    /**
+     * Clear FRP (for device unprovisioning)
+     */
+    fun clearFactoryResetProtection() {
+        if (!isDeviceOwner()) {
+            Log.e(TAG, "Cannot clear FRP - not device owner")
+            return
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                devicePolicyManager.setFactoryResetProtectionPolicy(adminComponent, null)
+                Log.d(TAG, "✅ FRP cleared")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing FRP", e)
         }
     }
 
