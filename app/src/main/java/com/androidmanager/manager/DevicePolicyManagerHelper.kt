@@ -11,7 +11,7 @@ import android.os.Build
 import android.os.UserManager
 import android.provider.Settings
 import android.util.Log
-import com.androidmanager.receiver.EMIDeviceAdminReceiver
+import com.androidmanager.receiver.DeviceAdminReceiver
 
 /**
  * Helper class to manage Device Policy operations
@@ -28,7 +28,7 @@ class DevicePolicyManagerHelper(private val context: Context) {
     }
 
     private val adminComponent: ComponentName by lazy {
-        EMIDeviceAdminReceiver.getComponentName(context)
+        DeviceAdminReceiver.getComponentName(context)
     }
 
     private val accountManager: AccountManager by lazy {
@@ -75,52 +75,39 @@ class DevicePolicyManagerHelper(private val context: Context) {
         }
     }
 
-    // ==================== Screen Lock Management ====================
-
     /**
-     * Set a 4-digit PIN as the screen lock
+     * Exempt app from battery optimization (Doze mode)
+     * This is CRITICAL for reliable background location updates on physical devices
+     * OEMs like Samsung, Xiaomi, Huawei aggressively kill background services
      */
-    fun setScreenLockPin(pin: String): Boolean {
-        if (!isDeviceOwner()) {
-            Log.e(TAG, "Cannot set PIN - not device owner")
-            return false
-        }
+    fun exemptFromBatteryOptimization() {
+        try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            val packageName = context.packageName
 
-        return try {
-            // Set password quality to numeric
-            devicePolicyManager.setPasswordQuality(
-                adminComponent,
-                DevicePolicyManager.PASSWORD_QUALITY_NUMERIC
-            )
-
-            // Set minimum password length to 4
-            devicePolicyManager.setPasswordMinimumLength(adminComponent, 4)
-
-            // Set maximum time to lock (immediate)
-            devicePolicyManager.setMaximumTimeToLock(adminComponent, 0)
-
-            // Require password for device unlock
-            devicePolicyManager.setPasswordExpirationTimeout(adminComponent, 0)
-
-            // Reset the password
-            val result = devicePolicyManager.resetPassword(
-                pin,
-                DevicePolicyManager.RESET_PASSWORD_REQUIRE_ENTRY
-            )
-
-            if (result) {
-                // Lock the device immediately to enforce PIN entry
-                devicePolicyManager.lockNow()
-                Log.d(TAG, "PIN set and device locked - user must enter PIN")
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                // Check if we have background restrictions
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                    if (activityManager.isBackgroundRestricted) {
+                        Log.w(TAG, "App has background restrictions - user may need to manually disable")
+                    } else {
+                        Log.d(TAG, "No background restrictions on app")
+                    }
+                }
+                
+                Log.d(TAG, "App is not exempt from battery optimization - location updates may be affected")
+            } else {
+                Log.d(TAG, "Already exempt from battery optimization")
             }
-
-            Log.d(TAG, "PIN set result: $result")
-            result
         } catch (e: Exception) {
-            Log.e(TAG, "Error setting PIN", e)
-            false
+            Log.e(TAG, "Error checking battery optimization status", e)
         }
     }
+
+    // ==================== Screen Lock Management ====================
+
+
 
     /**
      * Lock the device immediately
@@ -171,11 +158,16 @@ class DevicePolicyManagerHelper(private val context: Context) {
             // Use lockAccountModification() after account is added
 
             // Enable location (but don't prevent user from configuring it for testing)
-            try {
-                devicePolicyManager.setLocationEnabled(adminComponent, true)
-                Log.d(TAG, "Location enabled")
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not enable location: ${e.message}")
+            // setLocationEnabled requires API 30+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    devicePolicyManager.setLocationEnabled(adminComponent, true)
+                    Log.d(TAG, "Location enabled")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not enable location: ${e.message}")
+                }
+            } else {
+                Log.d(TAG, "setLocationEnabled not available on API ${Build.VERSION.SDK_INT}")
             }
 
             // Hide device owner notification
@@ -188,6 +180,88 @@ class DevicePolicyManagerHelper(private val context: Context) {
             Log.d(TAG, "Device restrictions applied successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error applying restrictions", e)
+        }
+    }
+
+    /**
+     * Enforce password requirements - REQUIRED for FRP to work!
+     * Sets minimum password quality to 4-digit numeric PIN
+     * User will be prompted to set a screen lock
+     */
+    fun enforcePasswordRequirements() {
+        if (!isDeviceOwner()) {
+            Log.w(TAG, "Cannot enforce password - not device owner")
+            return
+        }
+
+        try {
+            // Android 10+ : Use setRequiredPasswordComplexity for stronger enforcement
+            // Wrapped in try-catch for modified ROMs that may not have this method
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    // PASSWORD_COMPLEXITY_LOW requires at least pattern, PIN, or password
+                    // This BLOCKS "None" and "Swipe" options in Settings
+                    devicePolicyManager.setRequiredPasswordComplexity(
+                        DevicePolicyManager.PASSWORD_COMPLEXITY_LOW
+                    )
+                    Log.d(TAG, "Password complexity set to LOW (blocks swipe/none)")
+                } catch (e: NoSuchMethodError) {
+                    Log.w(TAG, "setRequiredPasswordComplexity not available on this ROM")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not set password complexity: ${e.message}")
+                }
+            }
+            
+            // Also set legacy password quality for compatibility
+            devicePolicyManager.setPasswordQuality(
+                adminComponent,
+                DevicePolicyManager.PASSWORD_QUALITY_NUMERIC
+            )
+            
+            // Set minimum password length to 4 digits
+            devicePolicyManager.setPasswordMinimumLength(adminComponent, 4)
+            
+            Log.d(TAG, "Password requirements set: 4-digit numeric PIN minimum")
+            
+            // Check if current password meets requirements
+            val isPasswordSufficient = devicePolicyManager.isActivePasswordSufficient
+            if (!isPasswordSufficient) {
+                Log.w(TAG, "Current password does not meet requirements - prompting user to set one")
+                promptUserToSetPassword()
+            } else {
+                Log.d(TAG, "✅ Current password meets requirements")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error enforcing password requirements", e)
+        }
+    }
+
+    /**
+     * Check if password requirements are met
+     */
+    fun isPasswordSufficient(): Boolean {
+        return try {
+            devicePolicyManager.isActivePasswordSufficient
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking password sufficiency", e)
+            false
+        }
+    }
+
+    /**
+     * Prompt user to set a screen lock password/PIN
+     * Launches the system password setup screen
+     */
+    fun promptUserToSetPassword() {
+        try {
+            // This intent launches the screen lock setup screen
+            val intent = Intent(DevicePolicyManager.ACTION_SET_NEW_PASSWORD).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            Log.d(TAG, "Launched password setup screen")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error launching password setup", e)
         }
     }
 
@@ -280,8 +354,12 @@ class DevicePolicyManagerHelper(private val context: Context) {
         }
 
         try {
-            // Enable location globally
-            devicePolicyManager.setLocationEnabled(adminComponent, true)
+            // Enable location globally - requires API 30+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                devicePolicyManager.setLocationEnabled(adminComponent, true)
+            } else {
+                Log.d(TAG, "setLocationEnabled not available on API ${Build.VERSION.SDK_INT}")
+            }
 
             // Prevent user from disabling location
             devicePolicyManager.addUserRestriction(
@@ -328,6 +406,64 @@ class DevicePolicyManagerHelper(private val context: Context) {
             Log.d(TAG, "Location permissions granted")
         } catch (e: Exception) {
             Log.e(TAG, "Error granting location permissions", e)
+        }
+    }
+
+    /**
+     * Grant READ_PHONE_STATE permission to this app (for IMEI access)
+     * Must be called as Device Owner before attempting to get IMEI
+     */
+    fun grantPhoneStatePermission() {
+        if (!isDeviceOwner()) {
+            Log.w(TAG, "Cannot grant phone state permission - not device owner")
+            return
+        }
+
+        try {
+            val packageName = context.packageName
+
+            devicePolicyManager.setPermissionGrantState(
+                adminComponent,
+                packageName,
+                android.Manifest.permission.READ_PHONE_STATE,
+                DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED
+            )
+
+            Log.d(TAG, "READ_PHONE_STATE permission granted for IMEI access")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error granting READ_PHONE_STATE permission", e)
+        }
+    }
+
+    /**
+     * Grant POST_NOTIFICATIONS permission to this app (for Android 13+)
+     * Must be called as Device Owner for EMI reminder notifications
+     */
+    fun grantNotificationPermission() {
+        if (!isDeviceOwner()) {
+            Log.w(TAG, "Cannot grant notification permission - not device owner")
+            return
+        }
+
+        // POST_NOTIFICATIONS is only required on Android 13 (API 33) and above
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Log.d(TAG, "POST_NOTIFICATIONS not required below Android 13")
+            return
+        }
+
+        try {
+            val packageName = context.packageName
+
+            devicePolicyManager.setPermissionGrantState(
+                adminComponent,
+                packageName,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+                DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED
+            )
+
+            Log.d(TAG, "POST_NOTIFICATIONS permission granted for EMI reminders")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error granting POST_NOTIFICATIONS permission", e)
         }
     }
 
@@ -410,10 +546,9 @@ class DevicePolicyManagerHelper(private val context: Context) {
         }
     }
 
-    // ==================== Kiosk Mode (Full Device Lock) ====================
-
     /**
      * Enter kiosk mode - locks device to show only the lock screen
+     * Blocks: Home button, Recent Apps, Notifications, Power Menu
      */
     fun enterKioskMode(lockScreenPackage: String) {
         if (!isDeviceOwner()) {
@@ -425,13 +560,19 @@ class DevicePolicyManagerHelper(private val context: Context) {
             // Set the lock screen as the only allowed package
             devicePolicyManager.setLockTaskPackages(adminComponent, arrayOf(lockScreenPackage))
 
-            // Configure minimal features in kiosk mode
+            // Configure MINIMAL features in kiosk mode
+            // LOCK_TASK_FEATURE_NONE = 0: Disables ALL features including:
+            // - Status bar / notifications
+            // - Home button (blocked anyway in lock task mode)
+            // - Recent apps
+            // - Global actions (POWER MENU) - this is what disables power button restart!
+            // - Keyguard
             devicePolicyManager.setLockTaskFeatures(
                 adminComponent,
                 DevicePolicyManager.LOCK_TASK_FEATURE_NONE
             )
 
-            Log.d(TAG, "Kiosk mode enabled for $lockScreenPackage")
+            Log.d(TAG, "Kiosk mode enabled for $lockScreenPackage (power menu disabled)")
         } catch (e: Exception) {
             Log.e(TAG, "Error entering kiosk mode", e)
         }
@@ -487,6 +628,7 @@ class DevicePolicyManagerHelper(private val context: Context) {
     /**
      * Get device serial number (requires device owner)
      */
+    @android.annotation.SuppressLint("MissingPermission", "HardwareIds")
     fun getDeviceSerialNumber(): String? {
         return if (isDeviceOwner()) {
             try {
@@ -503,6 +645,7 @@ class DevicePolicyManagerHelper(private val context: Context) {
     /**
      * Get device IMEI (requires special permission)
      */
+    @android.annotation.SuppressLint("MissingPermission", "HardwareIds")
     fun getDeviceIMEI(): String? {
         // Note: IMEI access is restricted in Android 10+
         // Device owner can access it through telephony manager

@@ -66,10 +66,62 @@ class SetupActivity : ComponentActivity() {
         // Initialize network with hardcoded URL
         NetworkModule.initialize(Constants.BACKEND_URL)
         deviceRepository = DeviceRepository(preferencesManager)
+        
+        // Check if this is AMAPI provisioning
+        checkAndExtractAmapiProvisioning()
 
         setContent {
             AndroidManagerTheme {
                 AutoSetupScreen()
+            }
+        }
+    }
+    
+    /**
+     * Check if activity was launched after AMAPI provisioning
+     * and extract enrollment data from intent extras
+     */
+    private fun checkAndExtractAmapiProvisioning() {
+        val action = intent.action
+        Log.d(TAG, "SetupActivity launched with action: $action")
+        
+        if (action == "android.app.action.PROVISIONING_SUCCESSFUL" ||
+            action == "android.app.action.ADMIN_POLICY_COMPLIANCE") {
+            
+            Log.d(TAG, "✅​ AMAPI provisioning detected!")
+            
+            // Extract the admin extras bundle
+            val adminExtras = intent.getBundleExtra("android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE")
+            
+            if (adminExtras != null) {
+                lifecycleScope.launch {
+                    try {
+                        // Extract AMAPI data
+                        val backendUrl = adminExtras.getString("backend_url")
+                        val enrollmentToken = adminExtras.getString("enrollment_token")
+                        val customerId = adminExtras.getString("customer_id")
+                        val enterpriseId = adminExtras.getString("enterprise_id")
+                        
+                        Log.d(TAG, "AMAPI Provisioning Data:")
+                        Log.d(TAG, "  Backend URL: $backendUrl")
+                        Log.d(TAG, "  Customer ID: $customerId")
+                        Log.d(TAG, "  Enterprise ID: $enterpriseId")
+                        Log.d(TAG, "  Enrollment Token: ${enrollmentToken?.take(20)}...")
+                        
+                        // Store in preferences
+                        backendUrl?.let { preferencesManager.setBackendUrl(it) }
+                        customerId?.let { preferencesManager.setCustomerId(it) }
+                        enrollmentToken?.let { preferencesManager.setEnrollmentToken(it) }
+                        enterpriseId?.let { preferencesManager.setEnterpriseId(it) }
+                        preferencesManager.setAmapiProvisioned(true)
+                        
+                        Log.d(TAG, "✅​ AMAPI data stored successfully")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error extracting AMAPI data", e)
+                    }
+                }
+            } else {
+                Log.w(TAG, "⚠️ No admin extras bundle found in provisioning intent")
             }
         }
     }
@@ -292,6 +344,268 @@ class SetupActivity : ComponentActivity() {
         onComplete: () -> Unit
     ) {
         try {
+            // Detect if device is enterprise-provisioned
+            val isEnterpriseDevice = policyHelper.isDeviceOwner()
+            
+            Log.d(TAG, "Setup mode: ${if (isEnterpriseDevice) "ENTERPRISE" else "MANUAL"}")
+            
+            if (isEnterpriseDevice) {
+                // Enterprise provisioning - simplified flow
+                // Managed account, permissions, and restrictions handled by cloud policy
+                runEnterpriseSetup(onStateChange, onError, onComplete)
+            } else {
+                // Manual setup - full flow (for testing/development)
+                runManualSetup(onStateChange, onPinGenerated, onError, onComplete)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Setup failed", e)
+            onError(e.message ?: "Unknown error occurred")
+        }
+    }
+    
+    /**
+     * Enterprise provisioning setup
+     * Device is already provisioned via Android Management API:
+     * - App is force-installed
+     * - Permissions auto-granted  
+     * - Managed account created automatically
+     * - Screen lock enforced by policy
+     * - FRP protection via managed account
+     */
+    private suspend fun runEnterpriseSetup(
+        onStateChange: (SetupState, String) -> Unit,
+        onError: (String) -> Unit,
+        onComplete: () -> Unit
+    ) {
+        Log.d(TAG, "Starting enterprise provisioning setup")
+        
+        // Step 1: Initialize device info
+        onStateChange(SetupState.INITIALIZING, "Initializing enterprise device...")
+        delay(500)
+        
+        val deviceId = DeviceUtils.generateDeviceId(this@SetupActivity)
+        preferencesManager.setDeviceId(deviceId)
+        
+        preferencesManager.setShopInfo(Constants.SHOP_ID, Constants.SHOP_NAME)
+        preferencesManager.setBackendUrl(Constants.BACKEND_URL)
+        
+        Log.d(TAG, "Device ID: $deviceId")
+        
+        // Step 2: Grant necessary permissions BEFORE getting device identifiers
+        onStateChange(SetupState.REGISTERING, "Configuring permissions...")
+        delay(300)
+        
+        // Log detailed Device Owner status for debugging
+        val isDeviceOwner = policyHelper.isDeviceOwner()
+        val isAdminActive = policyHelper.isAdminActive()
+        Log.d(TAG, "📋 Device Owner Status: isDeviceOwner=$isDeviceOwner, isAdminActive=$isAdminActive")
+        
+        if (isDeviceOwner) {
+            Log.d(TAG, "🔑 Granting permissions as Device Owner...")
+            policyHelper.grantPhoneStatePermission()  // For IMEI
+            policyHelper.grantLocationPermission()     // For location tracking
+            policyHelper.grantNotificationPermission() // For EMI reminders (Android 13+)
+            Log.d(TAG, "✅ Permissions granted, waiting for system to apply...")
+            delay(500)  // Give system time to apply permissions
+        } else {
+            Log.w(TAG, "⚠️ NOT Device Owner - cannot grant permissions programmatically")
+        }
+        
+        // Step 3: Get device identifiers (now that permissions are granted)
+        onStateChange(SetupState.REGISTERING, "Collecting device information...")
+        
+        val serialNumber = policyHelper.getDeviceSerialNumber()
+        var imei = policyHelper.getDeviceIMEI()
+        
+        Log.d(TAG, "📱 Device Identifiers: IMEI=$imei, Serial=$serialNumber")
+        
+        // Handle IMEI for emulator vs real device - with fallback to serial
+        if (imei == null || imei == "000000000000000") {
+            val isEmulator = android.os.Build.FINGERPRINT.contains("generic") || 
+                             android.os.Build.MODEL.contains("Emulator") ||
+                             android.os.Build.PRODUCT.contains("sdk")
+            
+            if (isEmulator) {
+                imei = "867400022047199"
+                Log.w(TAG, "Running on emulator - using test IMEI: $imei")
+            } else {
+                // Real device - use serial number as fallback instead of failing
+                Log.w(TAG, "⚠️ IMEI not accessible - using serial number as fallback")
+                imei = try {
+                    serialNumber ?: android.os.Build.getSerial()
+                } catch (e: SecurityException) {
+                    Log.w(TAG, "Serial access also denied: ${e.message}")
+                    null
+                } ?: "DEV_${System.currentTimeMillis()}"
+                Log.d(TAG, "📱 Using fallback identifier: $imei")
+            }
+        }
+        
+        preferencesManager.setImei(imei)
+        Log.d(TAG, "✅ Device identifier saved: $imei")
+        
+        // Step 3: Get location if available (permissions auto-granted by policy)
+        // Use timeout to prevent hanging if GPS can't get a fix
+        var currentLocation: Location? = null
+        try {
+            if (ActivityCompat.checkSelfPermission(
+                    this@SetupActivity,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                // Timeout after 10 seconds to prevent hanging
+                currentLocation = kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                    fusedLocationClient.getCurrentLocation(
+                        Priority.PRIORITY_HIGH_ACCURACY,
+                        object : CancellationToken() {
+                            override fun onCanceledRequested(p0: OnTokenCanceledListener) = CancellationTokenSource().token
+                            override fun isCancellationRequested() = false
+                        }
+                    ).await()
+                }
+                if (currentLocation != null) {
+                    Log.d(TAG, "Location: ${currentLocation.latitude}, ${currentLocation.longitude}")
+                } else {
+                    Log.w(TAG, "Location request timed out after 10s - proceeding without location")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not get location: ${e.message}")
+        }
+        
+        // Step 4: Get FCM token (may be null initially)
+        val fcmToken = preferencesManager.getFcmToken()
+        
+        if (fcmToken != null) {
+            Log.d(TAG, "✅ FCM Token available: ${fcmToken.take(20)}...")
+        } else {
+            Log.w(TAG, "⚠️ FCM Token not available yet")
+            Log.w(TAG, "→ Device will register without FCM token")
+            Log.w(TAG, "→ Token will be sent to backend automatically when generated")
+            Log.w(TAG, "→ Management API provides fallback for device control")
+        }
+        
+        // Step 5: Register with backend (NO PIN - managed account handles FRP)
+        // FCM token can be null - it will be updated later via onNewToken()
+        try {
+            // Get AMAPI enrollment data if available
+            val customerId = preferencesManager.getCustomerId()
+            val enrollmentToken = preferencesManager.getEnrollmentToken()
+            
+            if (customerId != null) {
+                Log.d(TAG, "📱 Registering with AMAPI customer ID: $customerId")
+            }
+            
+            val result = deviceRepository.registerDevice(
+                deviceId = deviceId,
+                serialNumber = serialNumber,
+                imei = imei,
+                fcmToken = fcmToken,  // ← Can be null, will update later
+                shopId = Constants.SHOP_ID,
+                shopOwnerEmail = null,  // Managed account email handled by enterprise
+                latitude = currentLocation?.latitude,
+                longitude = currentLocation?.longitude,
+                customerId = customerId,           // AMAPI customer ID
+                enrollmentToken = enrollmentToken  // AMAPI enrollment token
+            )
+            
+            result.onSuccess {
+                Log.d(TAG, "✅ Enterprise device registered successfully")
+            }.onFailure { error ->
+                Log.e(TAG, "❌ Registration failed: ${error.message}")
+                throw error
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Backend registration failed", e)
+            onError("Failed to register device: ${e.message}")
+            return
+        }
+        
+        // Step 6: Apply device-specific restrictions
+        onStateChange(SetupState.APPLYING_RESTRICTIONS, "Finalizing device setup...")
+        delay(500)
+        
+        // Suppress device owner notifications
+        policyHelper.suppressDeviceOwnerNotifications()
+        
+        // Apply any additional app-specific restrictions
+        // (Cloud policy handles most restrictions, this is for app-specific ones)
+        policyHelper.applyDeviceRestrictions()
+        
+        // Enforce password requirements (REQUIRED for FRP to work!)
+        // This sets the policy AND prompts user if password is not sufficient
+        policyHelper.enforcePasswordRequirements()
+        
+        // Wait until user sets a valid password - MANDATORY for FRP
+        if (!policyHelper.isPasswordSufficient()) {
+            onStateChange(SetupState.APPLYING_RESTRICTIONS, "Please set a screen lock (PIN/Pattern)...")
+            
+            // Keep checking until password is set
+            var waitCount = 0
+            while (!policyHelper.isPasswordSufficient()) {
+                delay(3000) // Check every 3 seconds
+                waitCount++
+                
+                // If user hasn't set password in 15 seconds, prompt again
+                if (waitCount % 5 == 0) {
+                    Log.w(TAG, "User still hasn't set password - prompting again")
+                    policyHelper.promptUserToSetPassword()
+                }
+                
+                // Timeout after 5 minutes (100 * 3 seconds)
+                if (waitCount > 100) {
+                    Log.e(TAG, "Password setup timed out - proceeding anyway")
+                    break
+                }
+            }
+            
+            if (policyHelper.isPasswordSufficient()) {
+                Log.d(TAG, "✅ User set a valid password")
+            }
+        }
+        
+        // Exempt from battery optimization (CRITICAL for reliable location updates on physical devices)
+        policyHelper.exemptFromBatteryOptimization()
+        
+        // Hide app from launcher - users shouldn't see or open the MDM app
+        policyHelper.hideAppFromLauncher(true)
+        Log.d(TAG, "App hidden from launcher")
+        
+        // Step 7: Mark setup complete and start background service
+        preferencesManager.setSetupComplete(true)
+        Log.d(TAG, "Setup marked as complete")
+        
+        // Start background monitoring service
+        try {
+            val serviceIntent = Intent(this@SetupActivity, DeviceMonitorService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            Log.d(TAG, "DeviceMonitorService started")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start DeviceMonitorService", e)
+        }
+        
+        // Setup complete!
+        onComplete()
+        Log.d(TAG, "✅ Enterprise setup completed successfully")
+    }
+    
+    /**
+     * Manual setup flow (fallback for testing/development)
+     * Requires manual Google account addition and PIN setup
+     */
+    private suspend fun runManualSetup(
+        onStateChange: (SetupState, String) -> Unit,
+        onPinGenerated: (String) -> Unit,
+        onError: (String) -> Unit,
+        onComplete: () -> Unit
+    ) {
+        Log.d(TAG, "Starting manual setup flow")
+        
+        try {
             // Step 1: Initialize
             onStateChange(SetupState.INITIALIZING, "Preparing device...")
             delay(500)
@@ -303,20 +617,7 @@ class SetupActivity : ComponentActivity() {
             preferencesManager.setShopInfo(Constants.SHOP_ID, Constants.SHOP_NAME)
             preferencesManager.setBackendUrl(Constants.BACKEND_URL)
 
-            // Step 2: Generate PIN
-            onStateChange(SetupState.GENERATING_PIN, "Generating secure PIN...")
-            delay(500)
-
-            val pin = generateRandomPin()
-            onPinGenerated(pin)
-            Log.d(TAG, "Generated PIN: $pin")
-
-            if (policyHelper.isDeviceOwner()) {
-                val pinSet = policyHelper.setScreenLockPin(pin)
-                Log.d(TAG, "PIN set result: $pinSet")
-            }
-
-            // Step 3: Apply restrictions
+            // Step 2: Apply restrictions
             onStateChange(SetupState.APPLYING_RESTRICTIONS, "Applying device protection...")
             delay(500)
 
@@ -331,54 +632,17 @@ class SetupActivity : ComponentActivity() {
                 Log.w(TAG, "Not device owner - restrictions not applied")
             }
 
-            // Step 3.5: Handle Google Account for FRP
+
+            // Step 3: Register with backend
+            onStateChange(SetupState.REGISTERING, "Registering device...")
+            delay(500)
+
+            // Grant permissions before getting IMEI (if Device Owner)
             if (policyHelper.isDeviceOwner()) {
-                if (!policyHelper.hasGoogleAccount()) {
-                    // No account - prompt user to add one
-                    onStateChange(
-                        SetupState.WAITING_FOR_ACCOUNT,
-                        "Waiting for Google account..."
-                    )
-                    
-                    Log.d(TAG, "No Google account found - waiting for user to add one")
-                    
-                    // Ensure account addition is allowed
-                    policyHelper.allowAccountAddition()
-                    
-                    // Wait for account to be added (with timeout)
-                    var accountAdded = false
-                    var attempts = 0
-                    val maxAttempts = 300 // 5 minutes (300 * 1000ms)
-                    
-                    while (!accountAdded && attempts < maxAttempts) {
-                        delay(1000)
-                        accountAdded = policyHelper.hasGoogleAccount()
-                        attempts++
-                        
-                        if (attempts % 10 == 0) {
-                            Log.d(TAG, "Still waiting for account... (${attempts}s elapsed)")
-                        }
-                    }
-                    
-                    if (!accountAdded) {
-                        throw Exception("Google account not added within 5 minutes. Please add account and retry setup.")
-                    }
-                    
-                    Log.d(TAG, "Google account detected!")
-                }
-                
-                // Account exists - lock it
-                onStateChange(SetupState.LOCKING_ACCOUNT, "Securing Google account...")
-                delay(500)
-                
-                val firstAccount = policyHelper.getFirstGoogleAccount()
-                if (firstAccount != null) {
-                    policyHelper.lockAccountModification()
-                    preferencesManager.setLockedAccount(firstAccount.name, firstAccount.name)
-                    Log.d(TAG, "Locked account: ${firstAccount.name}")
-                } else {
-                    Log.w(TAG, "No Google account found after detection")
-                }
+                policyHelper.grantPhoneStatePermission()  // For IMEI access
+                policyHelper.grantLocationPermission()     // For location
+                Log.d(TAG, "Permissions granted as Device Owner")
+                delay(200)
             }
 
             // Step 4: Register with backend
@@ -386,28 +650,29 @@ class SetupActivity : ComponentActivity() {
 
             val serialNumber = policyHelper.getDeviceSerialNumber()
             var imei = policyHelper.getDeviceIMEI()
+        
+        // Handle IMEI permission issues gracefully
+        if (imei == null || imei == "000000000000000") {
+            // Check if running on emulator
+            val isEmulator = android.os.Build.FINGERPRINT.contains("generic") || 
+                             android.os.Build.MODEL.contains("Emulator") ||
+                             android.os.Build.PRODUCT.contains("sdk")
             
-            // Handle IMEI for emulator vs real device
-            if (imei == null || imei == "000000000000000") {
-                // Check if running on emulator
-                val isEmulator = android.os.Build.FINGERPRINT.contains("generic") || 
-                                 android.os.Build.MODEL.contains("Emulator") ||
-                                 android.os.Build.PRODUCT.contains("sdk")
-                
-                if (isEmulator) {
-                    // Use test IMEI for emulator
-                    imei = "123456789012345"
-                    Log.w(TAG, "Running on emulator - using test IMEI: $imei")
-                } else {
-                    // Real device without IMEI - error
-                    Log.e(TAG, "Failed to get IMEI from real device")
-                    throw Exception("IMEI required for device registration. Please ensure telephony permissions are granted.")
-                }
+            if (isEmulator) {
+                // Use test IMEI for emulator
+                imei = "867400022047199"
+                Log.w(TAG, "Running on emulator - using test IMEI: $imei")
+            } else {
+                // Real device without IMEI permission - use serial number as fallback
+                Log.w(TAG, "IMEI permission not granted - using serial number as fallback")
+                imei = serialNumber ?: android.os.Build.SERIAL ?: "UNKNOWN_${System.currentTimeMillis()}"
+                Log.d(TAG, "Fallback IMEI (Serial): $imei")
             }
-            
-            // Save IMEI to preferences
-            preferencesManager.setImei(imei)
-            Log.d(TAG, "IMEI: $imei")
+        }
+        
+        // Save IMEI to preferences
+        preferencesManager.setImei(imei)
+        Log.d(TAG, "IMEI: $imei")
 
             // Note: firstAccount is already handled in FRP section above
 
@@ -436,29 +701,26 @@ class SetupActivity : ComponentActivity() {
             val fcmToken = preferencesManager.getFcmToken()
             Log.d(TAG, "FCM Token available: ${fcmToken != null}")
 
-            try {
-                val result = deviceRepository.registerDevice(
-                    deviceId = deviceId,
-                    serialNumber = serialNumber,
-                    imei = imei,
-                    fcmToken = fcmToken,  // May be null if not yet generated
-                    shopId = Constants.SHOP_ID,
-                    shopOwnerEmail = policyHelper.getFirstGoogleAccount()?.name,
-                    devicePin = pin,  // Pass the generated PIN
-                    latitude = currentLocation?.latitude,
-                    longitude = currentLocation?.longitude
-                )
+            val result = deviceRepository.registerDevice(
+                deviceId = deviceId,
+                serialNumber = serialNumber,
+                imei = imei,
+                fcmToken = fcmToken,  // May be null if not yet generated
+                shopId = Constants.SHOP_ID,
+                shopOwnerEmail = policyHelper.getFirstGoogleAccount()?.name,
+                latitude = currentLocation?.latitude,
+                longitude = currentLocation?.longitude
+            )
 
-                result.onSuccess { response ->
-                    Log.d(TAG, "Device registered: ${response.message}")
-                }
-
-                result.onFailure { error ->
-                    Log.e(TAG, "Registration failed: ${error.message}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Registration error: ${e.message}")
+            result.onSuccess { response ->
+                Log.d(TAG, "Device registered: ${response.message}")
             }
+
+            result.onFailure { error ->
+                Log.e(TAG, "Registration failed: ${error.message}")
+                throw error
+            }
+
 
             // Step 5: Complete
             preferencesManager.setSetupComplete(true)
@@ -472,9 +734,7 @@ class SetupActivity : ComponentActivity() {
         }
     }
 
-    private fun generateRandomPin(): String {
-        return (1000..9999).random().toString()
-    }
+
 
     private fun finishSetup() {
         try {

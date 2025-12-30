@@ -11,6 +11,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -173,21 +174,44 @@ class EMIFirebaseMessagingService : FirebaseMessagingService() {
             preferencesManager.setFcmToken(token)
             Log.d(TAG, "FCM token saved to preferences")
 
-            // Register token with backend using IMEI (without PIN/location as setup already happened)
+            // Register token with backend with retry logic
+            registerTokenWithRetry(token)
+        }
+    }
+    
+    /**
+     * Register FCM token with backend with exponential backoff retry
+     */
+    private suspend fun registerTokenWithRetry(token: String, maxRetries: Int = 3) {
+        var attempt = 0
+        
+        while (attempt < maxRetries) {
             try {
                 if (NetworkModule.isInitialized()) {
                     val result = deviceRepository.registerFcmToken(token)
                     result.onSuccess {
-                        Log.d(TAG, "FCM token registered with backend successfully")
+                        Log.d(TAG, "✅ FCM token registered with backend successfully")
+                        return  // Success - exit retry loop
                     }
                     result.onFailure { error ->
-                        Log.e(TAG, "Failed to register FCM token: ${error.message}")
+                        Log.e(TAG, "❌ Failed to register FCM token (attempt ${attempt + 1}/$maxRetries): ${error.message}")
+                        throw error
                     }
                 } else {
-                    Log.w(TAG, "Network not initialized yet - token will be registered later")
+                    Log.w(TAG, "⚠️ Network not initialized yet - will retry in ${(attempt + 1) * 5}s")
+                    delay((attempt + 1) * 5000L)  // Wait before retry
+                    attempt++
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error registering FCM token on backend", e)
+                attempt++
+                if (attempt < maxRetries) {
+                    val delayMs = (attempt * 5000L)  // Exponential backoff: 5s, 10s, 15s
+                    Log.w(TAG, "Retrying FCM token registration in ${delayMs/1000}s...")
+                    delay(delayMs)
+                } else {
+                    Log.e(TAG, "❌ Failed to register FCM token after $maxRetries attempts", e)
+                    // Token is saved locally, will be sent during next app restart or manual retry
+                }
             }
         }
     }

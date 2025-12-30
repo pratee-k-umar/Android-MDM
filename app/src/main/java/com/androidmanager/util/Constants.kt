@@ -10,7 +10,7 @@ object Constants {
     // ============================================================
     
     // Backend API - Matches the API documentation base URL
-    const val BACKEND_URL = "https://emi-backend-2wts.onrender.com/"
+    const val BACKEND_URL = "https://emi-backend-j2qc.onrender.com/"
     
     // Shop Information - CHANGE THESE TO YOUR SHOP DETAILS
     const val SHOP_ID = "SHOP_001"
@@ -23,8 +23,6 @@ object Constants {
     
     // Intervals (in milliseconds)
     const val LOCATION_UPDATE_INTERVAL = 15 * 60 * 1000L // 15 minutes
-    const val HEARTBEAT_INTERVAL = 5 * 60 * 1000L // 5 minutes
-    const val COMMAND_POLL_INTERVAL = 60 * 1000L // 1 minute
     
     // Lock screen
     const val LOCK_SCREEN_DEFAULT_MESSAGE = "Payment overdue. Please contact the shop owner to unlock your device."

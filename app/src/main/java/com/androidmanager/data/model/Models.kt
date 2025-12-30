@@ -9,7 +9,6 @@ import kotlinx.serialization.Serializable
 data class FcmTokenRequest(
     val fcmToken: String,
     val imei1: String,
-    val devicePin: String? = null,  // Optional: 4-6 digit PIN
     val latitude: Double? = null,    // Optional: Device latitude
     val longitude: Double? = null    // Optional: Device longitude
 )
@@ -122,7 +121,6 @@ enum class CommandType {
     WIPE,
     UPDATE_MESSAGE,
     GET_LOCATION,
-    SET_PIN,
     PING
 }
 
@@ -210,7 +208,8 @@ data class LockScreenState(
 data class LocationUpdateRequest(
     val imei1: String,
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    val isActive: Boolean = true // Indicates device is online and actively sending updates
 )
 
 /**
@@ -228,4 +227,54 @@ data class LocationUpdateData(
     val customerId: String,
     val customerName: String,
     val location: LocationInfo
+)
+
+/**
+ * Device activity/heartbeat request
+ */
+@Serializable
+data class DeviceActivityRequest(
+    val imei1: String,
+    val activityType: String = "heartbeat", // "heartbeat", "app_start", "location_update", etc.
+    val timestamp: String? = null,
+    val batteryLevel: Int? = null,
+    val isCharging: Boolean? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+)
+
+/**
+ * Device activity response
+ */
+@Serializable
+data class DeviceActivityResponse(
+    val success: Boolean,
+    val message: String,
+    val data: DeviceActivityData?
+)
+
+@Serializable
+data class DeviceActivityData(
+    val customerId: String,
+    val customerName: String,
+    val lastActivity: String,
+    val isOnline: Boolean
+)
+
+/**
+ * Retailer Shop response
+ */
+@Serializable
+data class RetailerShopResponse(
+    val success: Boolean,
+    val message: String,
+    val data: RetailerShopData?
+)
+
+@Serializable
+data class RetailerShopData(
+    val shopName: String,
+    val shopAddress: String? = null,
+    val shopPhone: String? = null,
+    val shopEmail: String? = null
 )

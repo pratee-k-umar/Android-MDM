@@ -3,12 +3,15 @@ package com.androidmanager
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
+import android.content.RestrictionsManager
 import android.os.Build
 import android.util.Log
 import com.androidmanager.data.local.PreferencesManager
 import com.androidmanager.data.remote.NetworkModule
 import com.androidmanager.data.repository.DeviceRepository
 import com.androidmanager.manager.DevicePolicyManagerHelper
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +54,9 @@ class EMIDeviceManagerApp : Application() {
         // Initialize policy helper
         policyHelper = DevicePolicyManagerHelper(this)
 
+        // Initialize Crashlytics for crash reporting
+        initializeCrashlytics()
+
         // Initialize network if backend URL is configured
         initializeNetwork()
 
@@ -60,6 +66,28 @@ class EMIDeviceManagerApp : Application() {
         // Log device owner status
         Log.d(TAG, "Is Device Owner: ${policyHelper.isDeviceOwner()}")
         Log.d(TAG, "Is Admin Active: ${policyHelper.isAdminActive()}")
+        
+        // Log AMAPI provisioning status
+        applicationScope.launch {
+            val isAmapiProvisioned = preferencesManager.isAmapiProvisionedSync()
+            val customerId = preferencesManager.getCustomerId()
+            val enterpriseId = preferencesManager.getEnterpriseId()
+            
+            Log.d(TAG, "AMAPI Provisioned: $isAmapiProvisioned")
+            if (isAmapiProvisioned) {
+                Log.d(TAG, "  Customer ID: $customerId")
+                Log.d(TAG, "  Enterprise ID: $enterpriseId")
+                
+                // Initialize AMAPI policy manager
+                try {
+                    val policyManager = com.androidmanager.manager.AmapiPolicyManager(this@EMIDeviceManagerApp)
+                    policyManager.initialize()
+                    Log.d(TAG, "✅ AMAPI Policy Manager initialized")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Failed to initialize AMAPI policy manager", e)
+                }
+            }
+        }
     }
 
     private fun createNotificationChannel() {
@@ -79,17 +107,82 @@ class EMIDeviceManagerApp : Application() {
         }
     }
 
+    /**
+     * Initialize Firebase Crashlytics for crash reporting
+     * Sets custom keys for device identification in crash reports
+     */
+    private fun initializeCrashlytics() {
+        try {
+            val crashlytics = FirebaseCrashlytics.getInstance()
+            
+            // Enable crash collection
+            crashlytics.setCrashlyticsCollectionEnabled(true)
+            
+            // Set custom keys for device identification
+            crashlytics.setCustomKey("device_model", Build.MODEL)
+            crashlytics.setCustomKey("device_brand", Build.MANUFACTURER)
+            crashlytics.setCustomKey("android_version", Build.VERSION.RELEASE)
+            crashlytics.setCustomKey("sdk_int", Build.VERSION.SDK_INT)
+            crashlytics.setCustomKey("is_device_owner", policyHelper.isDeviceOwner())
+            
+            // Set IMEI if available (use sync version for non-coroutine context)
+            val imei = preferencesManager.getImeiSync()
+            if (imei != null) {
+                crashlytics.setUserId(imei)
+                crashlytics.setCustomKey("imei", imei)
+            }
+            
+            // Log that Crashlytics is initialized
+            crashlytics.log("App started - Crashlytics initialized")
+            Log.d(TAG, "✅ Crashlytics initialized")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing Crashlytics", e)
+        }
+    }
+
     private fun initializeNetwork() {
         applicationScope.launch {
             try {
-                val backendUrl = preferencesManager.getBackendUrl()
-                if (backendUrl != null) {
-                    NetworkModule.initialize(backendUrl)
-                    Log.d(TAG, "Network initialized with URL: $backendUrl")
+                // First, try to get backend URL from managed configuration (enterprise admin)
+                val managedBackendUrl = getManagedConfigBackendUrl()
+                
+                val backendUrl = managedBackendUrl 
+                    ?: preferencesManager.getBackendUrl() 
+                    ?: com.androidmanager.util.Constants.BACKEND_URL
+                
+                NetworkModule.initialize(backendUrl)
+                
+                if (managedBackendUrl != null) {
+                    Log.d(TAG, "Network initialized with MANAGED backend URL: $backendUrl")
+                    // Save managed URL to preferences for offline access
+                    preferencesManager.setBackendUrl(backendUrl)
+                } else {
+                    Log.d(TAG, "Network initialized with backend URL: $backendUrl")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error initializing network", e)
             }
+        }
+    }
+    
+    /**
+     * Get backend URL from managed configuration (if device is enterprise-managed)
+     * This allows enterprise admins to configure the backend URL remotely
+     */
+    private fun getManagedConfigBackendUrl(): String? {
+        return try {
+            val restrictionsManager = getSystemService(Context.RESTRICTIONS_SERVICE) as? RestrictionsManager
+            val appRestrictions = restrictionsManager?.applicationRestrictions
+            
+            val url = appRestrictions?.getString("backend_url")
+            if (url != null) {
+                Log.d(TAG, "Using managed configuration backend URL: $url")
+            }
+            url
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not read managed configuration: ${e.message}")
+            null
         }
     }
 

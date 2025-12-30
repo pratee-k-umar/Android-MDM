@@ -24,11 +24,10 @@ class DeviceRepository(
 
     /**
      * Register FCM token with backend (using IMEI)
-     * Optionally includes device PIN and location for complete registration
+     * Optionally includes location for complete registration
      */
     suspend fun registerFcmToken(
         fcmToken: String,
-        devicePin: String? = null,
         latitude: Double? = null,
         longitude: Double? = null
     ): Result<FcmTokenResponse> = withContext(Dispatchers.IO) {
@@ -40,12 +39,11 @@ class DeviceRepository(
             val request = FcmTokenRequest(
                 fcmToken = fcmToken,
                 imei1 = imei,
-                devicePin = devicePin,
                 latitude = latitude,
                 longitude = longitude
             )
 
-            Log.d(TAG, "Registering FCM token with backend (PIN: ${devicePin != null}, Location: ${latitude != null})")
+            Log.d(TAG, "Registering FCM token with backend (Location: ${latitude != null})")
 
             val response = apiService.registerFcmToken(request)
 
@@ -130,7 +128,8 @@ class DeviceRepository(
 
     /**
      * Register device with backend
-     * Now includes PIN and location for complete registration
+     * Now includes location for complete registration
+     * Supports AMAPI enrollment data
      */
     suspend fun registerDevice(
         deviceId: String,
@@ -139,19 +138,26 @@ class DeviceRepository(
         fcmToken: String?,
         shopId: String?,
         shopOwnerEmail: String?,
-        devicePin: String? = null,
         latitude: Double? = null,
-        longitude: Double? = null
+        longitude: Double? = null,
+        customerId: String? = null,           // AMAPI customer ID
+        enrollmentToken: String? = null        // AMAPI enrollment token
     ): Result<FcmTokenResponse> = withContext(Dispatchers.IO) {
         try {
             // Save IMEI if provided
             imei?.let { preferencesManager.setImei(it) }
             
-            // Register FCM token if available, including PIN and location
+            // Log AMAPI enrollment status
+            if (customerId != null && enrollmentToken != null) {
+                Log.d(TAG, "🔐 AMAPI enrollment data present")
+                Log.d(TAG, "  Customer ID: $customerId")
+                Log.d(TAG, "  Enrollment Token: ${enrollmentToken.take(20)}...")
+            }
+            
+            // Register FCM token if available, including location
             if (fcmToken != null) {
                 return@withContext registerFcmToken(
                     fcmToken = fcmToken,
-                    devicePin = devicePin,
                     latitude = latitude,
                     longitude = longitude
                 )
@@ -350,14 +356,17 @@ class DeviceRepository(
     }
 
     /**
-     * Send heartbeat to backend (STUB - Backend doesn't have this endpoint)
+     * Send heartbeat/activity to backend
+     * @deprecated No longer used - location updates provide implicit device activity tracking
      */
+    @Deprecated("No longer used - location updates provide implicit device activity tracking")
     suspend fun sendHeartbeat(): Result<Unit> = withContext(Dispatchers.IO) {
-        Log.w(TAG, "sendHeartbeat: Backend endpoint not implemented")
+        // Heartbeat removed - location updates provide implicit device activity tracking
+        Log.d(TAG, "Heartbeat is deprecated - location updates now track device activity")
         return@withContext Result.success(Unit)
     }
-
-    @Suppress("UNREACHABLE_CODE")
+    
+    @Deprecated("Old heartbeat implementation - not used")
     private suspend fun sendHeartbeatOld(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val deviceId = preferencesManager.getDeviceIdSync() ?: return@withContext Result.failure(
@@ -409,6 +418,31 @@ class DeviceRepository(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error reporting lock status", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Get retailer shop information for the device
+     */
+    suspend fun getRetailerShop(): Result<RetailerShopResponse> = withContext(Dispatchers.IO) {
+        try {
+            val imei = preferencesManager.getImei() ?: return@withContext Result.failure(
+                Exception("IMEI not found")
+            )
+
+            val response = apiService.getRetailerShop(imei)
+
+            if (response.isSuccessful && response.body() != null) {
+                val body = response.body()!!
+                Log.d(TAG, "Retailer shop fetched: ${body.data?.shopName}")
+                Result.success(body)
+            } else {
+                Log.e(TAG, "Get retailer shop failed: ${response.code()}")
+                Result.failure(Exception("Get retailer shop failed: ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting retailer shop", e)
             Result.failure(e)
         }
     }
