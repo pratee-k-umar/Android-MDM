@@ -17,11 +17,15 @@ Enterprise Android app with **AMAPI DPC (Device Policy Controller)** for zero-to
 - ✅ **Real-time Location Tracking** - Smart throttling (15 min/50 meters)
 - ✅ **Factory Reset Protection (FRP)** - Google account binding
 - ✅ **Device Owner Mode** - Full administrative control
+- ✅ **Mandatory Screen Lock** - Forces PIN/Pattern/Password
+- ✅ **App Hidden from Launcher** - Invisible to end users
+- ✅ **Crashlytics Integration** - Remote crash reporting
 
 ### Backend Integration
 - ✅ **Automated Registration** - Auto-registers on first boot
 - ✅ **FCM Push Notifications** - Real-time lock/unlock commands
 - ✅ **Location Reporting** - Periodic updates with online status
+- ✅ **Lock Screen Shop Info** - Fetches shop name/phone from API
 
 ---
 
@@ -34,6 +38,7 @@ Enterprise Android app with **AMAPI DPC (Device Policy Controller)** for zero-to
 | **Networking** | Retrofit + OkHttp |
 | **Storage** | DataStore Preferences |
 | **Push Notifications** | Firebase Cloud Messaging |
+| **Crash Reporting** | Firebase Crashlytics |
 | **Location** | Google Play Services Location |
 | **Enterprise** | Android Management API (AMAPI) |
 
@@ -211,7 +216,7 @@ Update these in your backend:
 
 ---
 
-## 📊 **Metrics**
+## 📊 **Metrics & Compatibility**
 
 | Metric | Value |
 |--------|-------|
@@ -220,6 +225,15 @@ Update these in your backend:
 | APK Size | ~3.5 MB |
 | Location Update | 15 min or 50m |
 | FCM Response | < 2 seconds |
+
+### Android Version Compatibility
+
+| Feature | Android 10 | Android 11+ |
+|---------|------------|-------------|
+| setLocationEnabled() | ❌ Skipped | ✅ |
+| setRequiredPasswordComplexity() | ⚠️ ROM dependent | ✅ |
+| Password enforcement | ✅ Legacy API | ✅ Modern API |
+| Location tracking | ✅ | ✅ |
 
 ---
 
