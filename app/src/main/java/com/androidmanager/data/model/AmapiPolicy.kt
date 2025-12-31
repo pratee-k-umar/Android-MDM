@@ -48,9 +48,13 @@ data class AmapiPolicy(
     @SerializedName("factoryResetDisabled")
     val factoryResetDisabled: Boolean? = null,
     
-    // FRP Admin Emails (for Factory Reset Protection)
+    // FRP Admin Emails (for Factory Reset Protection) - Legacy format
     @SerializedName("frpAdminEmails")
     val frpAdminEmails: List<String>? = null,
+    
+    // FRP Admin User IDs (Recommended - from Google People API)
+    @SerializedName("frpAdminUserIds")
+    val frpAdminUserIds: List<String>? = null,
     
     // Location
     @SerializedName("locationMode")
@@ -141,7 +145,6 @@ data class PasswordPolicy(
 
 /**
  * Password requirements (alternative format used in YOUR AMAPI policy)
- * Matches: "passwordRequirements": {"passwordMinimumLength": 4, "passwordQuality": "NUMERIC"}
  */
 data class PasswordRequirements(
     @SerializedName("passwordMinimumLength")
@@ -171,7 +174,6 @@ data class PasswordRequirements(
 
 /**
  * Advanced security overrides
- * Matches: "advancedSecurityOverrides": {"developerSettings": "DEVELOPER_SETTINGS_DISABLED"}
  */
 data class AdvancedSecurityOverrides(
     @SerializedName("developerSettings")

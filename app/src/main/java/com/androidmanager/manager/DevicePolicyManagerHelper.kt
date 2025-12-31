@@ -597,72 +597,145 @@ class DevicePolicyManagerHelper(private val context: Context) {
     // ==================== FRP (Factory Reset Protection) ====================
 
     /**
-     * Set up FRP with shop owner's Google account
+     * Set up FRP with shop owner's Google userId
      * After factory reset, device will require this account to unlock
-     * Uses FactoryResetProtectionPolicy API (Android 9+)
+     * Uses FactoryResetProtectionPolicy API (Android 11+)
+     * 
+     * @param userId The Google userId (numeric string from People API, NOT email)
      */
-    fun setupFactoryResetProtection(accountEmail: String) {
+    fun setupFactoryResetProtectionWithUserId(userId: String) {
         if (!isDeviceOwner()) {
             Log.e(TAG, "Cannot setup FRP - not device owner")
             return
         }
 
+        if (userId.isBlank()) {
+            Log.w(TAG, "Empty userId provided for FRP")
+            return
+        }
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                // Android 11+ : Use FactoryResetProtectionPolicy
+                // Android 11+ : Use FactoryResetProtectionPolicy with userId
                 val frpPolicy = android.app.admin.FactoryResetProtectionPolicy.Builder()
-                    .setFactoryResetProtectionAccounts(listOf(accountEmail))
+                    .setFactoryResetProtectionAccounts(listOf(userId))
                     .setFactoryResetProtectionEnabled(true)
                     .build()
                 
                 devicePolicyManager.setFactoryResetProtectionPolicy(adminComponent, frpPolicy)
-                Log.d(TAG, "✅ FRP configured with FactoryResetProtectionPolicy for: $accountEmail")
+                Log.d(TAG, "✅ FRP configured with userId: ${userId.take(10)}...")
+                
+                // IMPORTANT: Notify Google Play Services about FRP config change
+                notifyFrpConfigChanged()
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                // Android 9-10: Use deprecated but functional method
-                // Note: setFactoryResetProtectionPolicy was added in API 30
-                // For API 28-29, we need a workaround - the account must be added to device
-                Log.w(TAG, "⚠️ FRP on Android 9-10 requires Google account to be added to device")
-                Log.d(TAG, "FRP account intended: $accountEmail")
+                // Android 9-10: Use legacy method with application restrictions
+                Log.d(TAG, "Using legacy FRP method for Android ${Build.VERSION.SDK_INT}")
+                setupFrpLegacy(userId)
             } else {
-                Log.w(TAG, "FRP API not available on this Android version")
+                Log.w(TAG, "FRP API not available on Android ${Build.VERSION.SDK_INT}")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error setting up FRP", e)
+            Log.e(TAG, "Error setting up FRP with userId", e)
         }
     }
 
     /**
-     * Set up FRP with multiple accounts (for flexibility)
+     * Set up FRP with multiple Google userIds
      * Any of these accounts can unlock the device after factory reset
+     * 
+     * @param userIds List of Google userIds (numeric strings from People API)
      */
-    fun setupFactoryResetProtection(accountEmails: List<String>) {
+    fun setupFactoryResetProtectionWithUserIds(userIds: List<String>) {
         if (!isDeviceOwner()) {
             Log.e(TAG, "Cannot setup FRP - not device owner")
             return
         }
 
-        if (accountEmails.isEmpty()) {
-            Log.w(TAG, "No FRP accounts provided")
+        val validUserIds = userIds.filter { it.isNotBlank() }
+        if (validUserIds.isEmpty()) {
+            Log.w(TAG, "No valid FRP userIds provided")
             return
         }
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val frpPolicy = android.app.admin.FactoryResetProtectionPolicy.Builder()
-                    .setFactoryResetProtectionAccounts(accountEmails)
+                    .setFactoryResetProtectionAccounts(validUserIds)
                     .setFactoryResetProtectionEnabled(true)
                     .build()
                 
                 devicePolicyManager.setFactoryResetProtectionPolicy(adminComponent, frpPolicy)
-                Log.d(TAG, "✅ FRP configured with ${accountEmails.size} accounts: ${accountEmails.joinToString()}")
+                Log.d(TAG, "✅ FRP configured with ${validUserIds.size} userIds")
+                
+                // Notify Google Play Services
+                notifyFrpConfigChanged()
             } else {
                 Log.w(TAG, "⚠️ FRP with multiple accounts requires Android 11+")
-                // Fallback: try with first account
-                setupFactoryResetProtection(accountEmails.first())
+                // Fallback: use first userId
+                setupFactoryResetProtectionWithUserId(validUserIds.first())
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error setting up FRP with multiple accounts", e)
+            Log.e(TAG, "Error setting up FRP with multiple userIds", e)
         }
+    }
+
+    /**
+     * Legacy method for Android 9-10: Set FRP using application restrictions
+     * Uses setApplicationRestrictions on com.google.android.gms package
+     */
+    private fun setupFrpLegacy(googleAccountOrUserId: String) {
+        try {
+            val googlePlayPackage = "com.android.vending"
+            val gmsCorePackage = "com.google.android.gms"
+            
+            // Set restriction on Play Store
+            val existingConfig = devicePolicyManager.getApplicationRestrictions(adminComponent, googlePlayPackage)
+            val newConfig = android.os.Bundle(existingConfig)
+            newConfig.putBoolean("disableFactoryResetProtectionAdmin", false)
+            newConfig.putString("factoryResetProtectionAdmin", googleAccountOrUserId)
+            devicePolicyManager.setApplicationRestrictions(adminComponent, googlePlayPackage, newConfig)
+            
+            Log.d(TAG, "✅ Legacy FRP set via application restrictions")
+            
+            // Notify GMS Core about the change
+            notifyFrpConfigChanged()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting up legacy FRP", e)
+        }
+    }
+
+    /**
+     * Send broadcast to notify Google Play Services about FRP configuration change
+     * This is REQUIRED for FRP to take effect
+     */
+    private fun notifyFrpConfigChanged() {
+        try {
+            val frpChangedIntent = android.content.Intent("com.google.android.gms.auth.FRP_CONFIG_CHANGED")
+            frpChangedIntent.setPackage("com.google.android.gms")
+            context.sendBroadcast(frpChangedIntent)
+            Log.d(TAG, "✅ FRP broadcast sent to GMS")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending FRP broadcast", e)
+        }
+    }
+
+    /**
+     * Backward compatibility: Set up FRP using email (for older policy formats)
+     * Note: Official docs recommend using userId instead
+     */
+    @Deprecated("Use setupFactoryResetProtectionWithUserId() with Google userId instead")
+    fun setupFactoryResetProtection(accountEmail: String) {
+        Log.w(TAG, "⚠️ Using email for FRP - consider using userId for better reliability")
+        setupFactoryResetProtectionWithUserId(accountEmail)
+    }
+
+    /**
+     * Backward compatibility: Set up FRP using email list
+     */
+    @Deprecated("Use setupFactoryResetProtectionWithUserIds() with Google userIds instead")
+    fun setupFactoryResetProtection(accountEmails: List<String>) {
+        Log.w(TAG, "⚠️ Using emails for FRP - consider using userIds for better reliability")
+        setupFactoryResetProtectionWithUserIds(accountEmails)
     }
 
     /**
@@ -676,7 +749,10 @@ class DevicePolicyManagerHelper(private val context: Context) {
                 val policy = devicePolicyManager.getFactoryResetProtectionPolicy(adminComponent)
                 policy?.isFactoryResetProtectionEnabled ?: false
             } else {
-                false
+                // For legacy, check if restriction was set
+                val googlePlayPackage = "com.android.vending"
+                val config = devicePolicyManager.getApplicationRestrictions(adminComponent, googlePlayPackage)
+                config.containsKey("factoryResetProtectionAdmin")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error checking FRP status", e)
@@ -696,8 +772,17 @@ class DevicePolicyManagerHelper(private val context: Context) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 devicePolicyManager.setFactoryResetProtectionPolicy(adminComponent, null)
-                Log.d(TAG, "✅ FRP cleared")
+                Log.d(TAG, "✅ FRP cleared (Android 11+)")
+            } else {
+                // Clear legacy restriction
+                val googlePlayPackage = "com.android.vending"
+                val emptyConfig = android.os.Bundle()
+                devicePolicyManager.setApplicationRestrictions(adminComponent, googlePlayPackage, emptyConfig)
+                Log.d(TAG, "✅ FRP cleared (legacy)")
             }
+            
+            // Notify about the change
+            notifyFrpConfigChanged()
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing FRP", e)
         }

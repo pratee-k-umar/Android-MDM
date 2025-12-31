@@ -31,12 +31,22 @@ class LocationUpdateWorker(
 
         /**
          * Schedule periodic location updates (every 15 minutes)
+         * Also runs an immediate location update on first call
          */
         fun schedule(context: Context) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
+            // First, run an IMMEDIATE one-time location update
+            val immediateRequest = OneTimeWorkRequestBuilder<LocationUpdateWorker>()
+                .setConstraints(constraints)
+                .build()
+
+            WorkManager.getInstance(context).enqueue(immediateRequest)
+            Log.d(TAG, "Immediate location update triggered")
+
+            // Then schedule the periodic updates
             val workRequest = PeriodicWorkRequestBuilder<LocationUpdateWorker>(
                 15, TimeUnit.MINUTES,
                 5, TimeUnit.MINUTES  // Flex interval
@@ -54,7 +64,7 @@ class LocationUpdateWorker(
                 workRequest
             )
 
-            Log.d(TAG, "Location update worker scheduled (every 15 minutes)")
+            Log.d(TAG, "Periodic location update worker scheduled (every 15 minutes)")
         }
 
         /**
